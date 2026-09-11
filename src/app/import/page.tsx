@@ -43,7 +43,7 @@ export default function ImportStudentPage() {
       const res = await fetch('/api/import-student', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify([form]),
+        body: JSON.stringify(form),
       });
 
       const data = await res.json();
