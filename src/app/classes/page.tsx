@@ -23,12 +23,17 @@ interface ClassRecord {
   enrolled_count?: number;
 }
 
-interface StudentMinimal {
+interface StudentFull {
   student_code: string;
   chinese_name: string;
   english_name: string;
+  gender: string;
+  school: string;
   phone: string;
-  class_code: string;
+  class_code: string | null;
+  payment_status: string;
+  receipt_url: string | null;
+  attendance_status: boolean;
 }
 
 const defaultForm: ClassRecord = {
@@ -46,27 +51,38 @@ function ClassesAdminContent() {
   const searchParams = useSearchParams();
   const preselectedStudent = searchParams.get('student');
 
-  // 只有由修改學員頁面重定向過來（帶有 student 參數）才允許進入分班指派頁籤
   const isAssignmentAllowed = Boolean(preselectedStudent);
   const [viewTab, setViewTab] = useState<'admin' | 'assignment'>(
     isAssignmentAllowed ? 'assignment' : 'admin'
   );
 
   const [classList, setClassList] = useState<ClassRecord[]>([]);
-  const [students, setStudents] = useState<StudentMinimal[]>([]);
+  const [students, setStudents] = useState<StudentFull[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 分班選取狀態
+  // Assignment selection state
   const [selectedClassForAssign, setSelectedClassForAssign] = useState<string | null>(null);
-  const [selectedStudentsToAssign, setSelectedStudentsToAssign] = useState<string[]>([]);
   const [assigning, setAssigning] = useState(false);
 
-  // 課程新增/修改彈窗狀態
+  // Admin modal state
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [formData, setFormData] = useState<ClassRecord>(defaultForm);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error';
+    title?: string;
+    message: string;
+    details?: {
+      studentName: string;
+      studentCode: string;
+      previousClass: string;
+      targetClass: string;
+      lessonDate: string;
+      duration: string;
+      newRemainingSeats: number;
+    };
+  } | null>(null);
 
   const getStartEndTime = (durationStr: string) => {
     const parts = (durationStr || '').split('-').map((s) => s.trim());
@@ -90,7 +106,7 @@ function ClassesAdminContent() {
 
       const { data: rawStudents, error: studentErr } = await supabase
         .from('students')
-        .select('student_code, chinese_name, english_name, phone, class_code');
+        .select('*');
 
       if (studentErr) throw studentErr;
 
@@ -116,10 +132,6 @@ function ClassesAdminContent() {
       }));
 
       setClassList(aggregated);
-
-      if (preselectedStudent && currentStudents.some((s) => s.student_code === preselectedStudent)) {
-        setSelectedStudentsToAssign([preselectedStudent]);
-      }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || '讀取資料失敗' });
     } finally {
@@ -131,18 +143,21 @@ function ClassesAdminContent() {
     loadData();
   }, []);
 
-  // 排序：當前編輯學員置頂，其餘按中文姓名筆劃/拼音排序
-  const sortedStudentsForAssignment = useMemo(() => {
-    const list = [...students];
-    return list.sort((a, b) => {
-      if (preselectedStudent) {
-        if (a.student_code === preselectedStudent) return -1;
-        if (b.student_code === preselectedStudent) return 1;
-      }
-      const nameA = a.chinese_name || a.english_name || '';
-      const nameB = b.chinese_name || b.english_name || '';
-      return nameA.localeCompare(nameB, 'zh-Hant');
-    });
+  // Locate the dedicated student currently being edited
+  const currentTargetStudent = useMemo(() => {
+    if (!preselectedStudent) return null;
+    return students.find((s) => s.student_code === preselectedStudent) || null;
+  }, [students, preselectedStudent]);
+
+  // Exclude current targeted student from the general registered student listing
+  const remainingRegisteredStudents = useMemo(() => {
+    return students
+      .filter((s) => s.student_code !== preselectedStudent)
+      .sort((a, b) => {
+        const nameA = a.chinese_name || a.english_name || '';
+        const nameB = b.chinese_name || b.english_name || '';
+        return nameA.localeCompare(nameB, 'zh-Hant');
+      });
   }, [students, preselectedStudent]);
 
   const availableClassesForAssignment = useMemo(() => {
@@ -159,6 +174,13 @@ function ClassesAdminContent() {
     if (!targetClassData) return 0;
     return targetClassData.max_capacity - (targetClassData.enrolled_count || 0);
   }, [targetClassData]);
+
+  const getWhatsAppLink = (phone: string, studentName: string) => {
+    const cleaned = (phone || '').replace(/[^0-9]/g, '');
+    const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
+    const text = encodeURIComponent(`您好，這是關於 ${studentName} 的課堂分班與點名通知。`);
+    return `https://wa.me/${fullNumber}?text=${text}`;
+  };
 
   const validateForm = (): boolean => {
     const errs: Record<string, string> = {};
@@ -267,81 +289,94 @@ function ClassesAdminContent() {
     }
   };
 
+  // Student Assignment Action
   const handleAssignSubmit = async () => {
     setFeedback(null);
 
-    if (!selectedClassForAssign) {
-      setFeedback({ type: 'error', message: '請在課程表格中選取目標課堂。' });
+    if (!currentTargetStudent) {
+      setFeedback({ type: 'error', message: '未指定欲分班之學員資料。' });
       return;
     }
 
-    if (selectedStudentsToAssign.length === 0) {
-      setFeedback({ type: 'error', message: '請勾選欲指派的學員。' });
+    if (!selectedClassForAssign) {
+      setFeedback({ type: 'error', message: '請在課程表格中選取一班作為指派目標。' });
       return;
     }
 
     if (!targetClassData) return;
 
-    const newlyAddedCount = selectedStudentsToAssign.filter((sId) => {
-      const current = students.find((s) => s.student_code === sId);
-      return current?.class_code !== selectedClassForAssign;
-    }).length;
-
-    if (newlyAddedCount > remainingQuota) {
+    if (currentTargetStudent.class_code === selectedClassForAssign) {
       setFeedback({
         type: 'error',
-        message: `選取的 ${newlyAddedCount} 位新學員超出本班剩餘學額 (${remainingQuota} 席)！`,
+        message: `學員已在班別【${selectedClassForAssign}】中，無需重複指派。`,
+      });
+      return;
+    }
+
+    if (remainingQuota <= 0) {
+      setFeedback({
+        type: 'error',
+        message: `班別【${selectedClassForAssign}】名額已滿，無法再指派學員。`,
       });
       return;
     }
 
     setAssigning(true);
     try {
-      const affectedSourceClasses = new Set<string>();
-      selectedStudentsToAssign.forEach((sId) => {
-        const studentObj = students.find((s) => s.student_code === sId);
-        if (studentObj?.class_code && studentObj.class_code !== selectedClassForAssign) {
-          affectedSourceClasses.add(studentObj.class_code);
-        }
-      });
+      const prevClassCode = currentTargetStudent.class_code;
 
+      // 1. Update student's class_code
       const { error: studentUpdateErr } = await supabase
         .from('students')
         .update({ class_code: selectedClassForAssign })
-        .in('student_code', selectedStudentsToAssign);
+        .eq('student_code', currentTargetStudent.student_code);
 
       if (studentUpdateErr) throw studentUpdateErr;
 
-      const nextTargetCount = (targetClassData.enrolled_count || 0) + newlyAddedCount;
+      // 2. Update new target class enrolled_count
+      const newTargetCount = (targetClassData.enrolled_count || 0) + 1;
       await supabase
         .from('classes')
-        .update({ enrolled_count: nextTargetCount })
+        .update({ enrolled_count: newTargetCount })
         .eq('class_code', selectedClassForAssign);
 
-      for (const srcCode of Array.from(affectedSourceClasses)) {
+      // 3. Decrement previous class enrolled_count if existed
+      if (prevClassCode) {
         const { count, error: countErr } = await supabase
           .from('students')
           .select('*', { count: 'exact', head: true })
-          .eq('class_code', srcCode);
+          .eq('class_code', prevClassCode);
 
         if (!countErr && count !== null) {
           await supabase
             .from('classes')
             .update({ enrolled_count: count })
-            .eq('class_code', srcCode);
+            .eq('class_code', prevClassCode);
         }
       }
 
+      // Display detailed success notification
       setFeedback({
         type: 'success',
-        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫人數已同步更新！`,
+        title: '🎉 學員分班指派已成功完成！',
+        message: `已成功將學員分配至新課堂，資料庫記錄及班別人數已即時同步更新。`,
+        details: {
+          studentName: `${currentTargetStudent.chinese_name} ${
+            currentTargetStudent.english_name ? `(${currentTargetStudent.english_name})` : ''
+          }`,
+          studentCode: currentTargetStudent.student_code,
+          previousClass: prevClassCode || '未分班',
+          targetClass: `${targetClassData.class_name} [${targetClassData.class_code}]`,
+          lessonDate: targetClassData.lesson_date,
+          duration: targetClassData.duration,
+          newRemainingSeats: targetClassData.max_capacity - newTargetCount,
+        },
       });
 
-      setSelectedStudentsToAssign([]);
       setSelectedClassForAssign(null);
       await loadData();
     } catch (err: any) {
-      setFeedback({ type: 'error', message: `指派失敗: ${err.message}` });
+      setFeedback({ type: 'error', message: `分班指派失敗: ${err.message}` });
     } finally {
       setAssigning(false);
     }
@@ -350,7 +385,7 @@ function ClassesAdminContent() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* 頂部功能列 */}
+        {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">課程與堂別中心</h1>
@@ -374,7 +409,7 @@ function ClassesAdminContent() {
           </div>
         </div>
 
-        {/* 頁籤選單（若非從學員修改頁重定向，則鎖定並禁用學員分班頁籤） */}
+        {/* Tab Selector */}
         <div className="flex border-b border-gray-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
             onClick={() => {
@@ -416,22 +451,62 @@ function ClassesAdminContent() {
           </button>
         </div>
 
-        {/* 頂部摘要反饋橫幅 */}
+        {/* Prominent Feedback Banner with Detailed Success Panel */}
         {feedback && (
           <div
-            className={`p-4 rounded-xl text-sm font-medium border flex items-center gap-2 ${
+            className={`p-5 rounded-2xl border shadow-sm ${
               feedback.type === 'success'
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                : 'bg-rose-50 text-rose-800 border-rose-200'
+                ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
             }`}
           >
-            <span>{feedback.type === 'success' ? '✅' : '⚠️'}</span>
-            <span>{feedback.message}</span>
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">{feedback.type === 'success' ? '✅' : '⚠️'}</span>
+              <div className="w-full">
+                <h3 className="text-base font-black">
+                  {feedback.title || (feedback.type === 'success' ? '操作成功' : '操作失敗')}
+                </h3>
+                <p className="text-sm font-medium mt-0.5 opacity-90">{feedback.message}</p>
+
+                {feedback.details && (
+                  <div className="mt-4 p-3.5 bg-white/95 rounded-xl border border-emerald-200 text-xs space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      <div>
+                        <span className="text-gray-500 font-medium block">指派學員：</span>
+                        <span className="font-bold text-gray-900 text-sm">
+                          {feedback.details.studentName}
+                        </span>
+                        <span className="font-mono text-purple-700 ml-1.5 font-bold">
+                          [{feedback.details.studentCode}]
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 font-medium block">所調班別異動：</span>
+                        <div className="font-bold">
+                          <span className="text-gray-500">{feedback.details.previousClass}</span>
+                          <span className="mx-1 text-emerald-600">➔</span>
+                          <span className="text-emerald-800">{feedback.details.targetClass}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 font-medium block">新課堂時段 / 剩餘學額：</span>
+                        <span className="font-mono font-bold text-gray-800">
+                          {feedback.details.lessonDate} ({feedback.details.duration})
+                        </span>
+                        <span className="ml-2 font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[11px]">
+                          餘 {feedback.details.newRemainingSeats} 席
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* 頁籤 A: 課程詳細清單                                                      */}
+        {/* TAB 1: 課程詳細清單                                                        */}
         {/* ========================================================================= */}
         {viewTab === 'admin' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
@@ -514,18 +589,101 @@ function ClassesAdminContent() {
         )}
 
         {/* ========================================================================= */}
-        {/* 頁籤 B: 學員分班指派 (僅限由學員頁重定向進入)                              */}
+        {/* TAB 2: 學員分班指派                                                       */}
         {/* ========================================================================= */}
         {viewTab === 'assignment' && isAssignmentAllowed && (
           <div className="space-y-6">
+            {/* 1. 分班指派作業說明 */}
             <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl">
               <h2 className="text-sm font-bold text-purple-900">分班指派作業說明</h2>
               <p className="text-xs text-purple-700 mt-0.5">
-                步驟 1：勾選目標課堂 ➔ 步驟 2：確認下方學員（當前編輯學員已自動置頂） ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
+                步驟 1：確認下方目標學員資料 ➔ 步驟 2：於可選課程表格勾選目標課堂 ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
               </p>
             </div>
 
-            {/* 可選班別清單 */}
+            {/* 2. Selected Student Summary Card (專屬所選學員資料卡) */}
+            {currentTargetStudent ? (
+              <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border-2 border-purple-300 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between pb-3 border-b border-purple-200/80 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🎯</span>
+                    <h2 className="text-sm font-black text-purple-950">
+                      當前所選學員資料 (Selected Student)
+                    </h2>
+                  </div>
+                  <span className="text-xs font-bold text-amber-900 bg-amber-200/80 px-2.5 py-0.5 rounded-md border border-amber-300">
+                    現正進行分班調配
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                    <span className="text-gray-400 block mb-0.5 font-semibold">學生名字</span>
+                    <span className="font-black text-gray-900 text-sm block">
+                      {currentTargetStudent.chinese_name}
+                    </span>
+                    {currentTargetStudent.english_name && (
+                      <span className="text-[11px] text-gray-500 block truncate">
+                        {currentTargetStudent.english_name}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                    <span className="text-gray-400 block mb-0.5 font-semibold">學員編號</span>
+                    <span className="font-mono font-black text-purple-800 text-sm">
+                      {currentTargetStudent.student_code}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                    <span className="text-gray-400 block mb-0.5 font-semibold">性別 / 學校</span>
+                    <span className="font-bold text-gray-800 block">{currentTargetStudent.gender}</span>
+                    <span className="text-[11px] text-gray-500 block truncate" title={currentTargetStudent.school}>
+                      {currentTargetStudent.school || '-'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                    <span className="text-gray-400 block mb-0.5 font-semibold">繳費情況</span>
+                    <span
+                      className={`inline-block mt-0.5 px-2 py-0.5 text-[11px] font-bold rounded-full ${
+                        currentTargetStudent.payment_status === 'yes'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}
+                    >
+                      {currentTargetStudent.payment_status === 'yes' ? '已付款' : '未付款'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                    <span className="text-gray-400 block mb-0.5 font-semibold">聯絡電話</span>
+                    <a
+                      href={getWhatsAppLink(currentTargetStudent.phone, currentTargetStudent.chinese_name)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono font-bold text-blue-600 hover:text-blue-800 underline block"
+                    >
+                      {currentTargetStudent.phone}
+                    </a>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                    <span className="text-gray-400 block mb-0.5 font-semibold">現屬班別</span>
+                    <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block">
+                      {currentTargetStudent.class_code || '未分班'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-medium">
+                ⚠️ 查無相符之當前學員資料，請由學員修改資料頁面點擊進入。
+              </div>
+            )}
+
+            {/* 3. Available Class Listing Table (可選班別清單) */}
             <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
                 <thead className="bg-purple-700 text-white text-xs font-semibold uppercase">
@@ -602,139 +760,128 @@ function ClassesAdminContent() {
               </table>
             </div>
 
-            {/* 學員指派名冊（已報名其他班別的學員勾選框轉為唯讀鎖定，無任何超連結） */}
+            {/* 4. 其餘已登記學員名冊 (完全對齊點名名冊 6 欄位：學生名字, 性別, 就讀學校, 付款情況, 收據檢視, 聯絡電話) */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">
-                    現有名單學員
-                    {selectedClassForAssign && (
-                      <span className="text-purple-700 font-mono ml-2">
-                        ➔ 目標堂別: {selectedClassForAssign}
-                      </span>
-                    )}
-                  </h3>
+                  <h3 className="text-base font-bold text-gray-900">其餘現有名單學員</h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    已選取 {selectedStudentsToAssign.length} 位學員
-                    {selectedClassForAssign && `（目標班別剩餘學額: ${remainingQuota} 席）`}
+                    展示系統內其他學員（共 {remainingRegisteredStudents.length} 人，已排除當前上方所選學員）
                   </p>
                 </div>
               </div>
 
               <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
-                  <thead className="bg-gray-100 text-gray-700 text-xs font-bold uppercase sticky top-0 z-10">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-purple-700 text-white text-xs font-semibold uppercase sticky top-0 z-10">
                     <tr>
-                      <th className="px-4 py-3 text-center w-24">選取狀態</th>
-                      <th className="px-4 py-3">學員姓名</th>
-                      <th className="px-4 py-3">學員編號</th>
-                      <th className="px-4 py-3">流動電話</th>
+                      <th className="px-4 py-3.5 text-left">學生名字</th>
+                      <th className="px-4 py-3.5 text-left">性別</th>
+                      <th className="px-4 py-3.5 text-left">就讀學校</th>
+                      <th className="px-4 py-3.5 text-center">付款情況</th>
+                      <th className="px-4 py-3.5 text-center">收據檢視</th>
+                      <th className="px-4 py-3.5 text-left">聯絡電話</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {sortedStudentsForAssignment.length === 0 ? (
+                  <tbody className="divide-y divide-gray-200">
+                    {remainingRegisteredStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="py-8 text-center text-gray-400 text-xs">
-                          無學員記錄
+                        <td colSpan={6} className="py-12 text-center text-gray-400 text-xs">
+                          暫無其他學員記錄
                         </td>
                       </tr>
                     ) : (
-                      sortedStudentsForAssignment.map((st) => {
-                        const isCurrentTarget = st.student_code === preselectedStudent;
-                        const isChecked = selectedStudentsToAssign.includes(st.student_code);
-                        // 若已報讀班別且非當前欲編輯調配之學員，鎖定為唯讀狀態
-                        const isLockedRegistered = Boolean(st.class_code && !isCurrentTarget);
-
-                        return (
-                          <tr
-                            key={st.student_code}
-                            className={`transition ${
-                              isCurrentTarget
-                                ? 'bg-amber-50/70 border-l-4 border-l-amber-500'
-                                : isLockedRegistered
-                                ? 'bg-gray-50/80 text-gray-400'
-                                : isChecked
-                                ? 'bg-purple-50/60'
-                                : 'hover:bg-gray-50'
-                            }`}
-                          >
-                            <td className="px-4 py-3 text-center">
-                              {isLockedRegistered ? (
-                                <div className="inline-flex items-center justify-center text-gray-400" title="該學員已登記其他班別，不可重複指派">
-                                  <span className="text-xs">🔒 唯讀</span>
-                                </div>
-                              ) : (
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedStudentsToAssign((prev) => [...prev, st.student_code]);
-                                    } else {
-                                      setSelectedStudentsToAssign((prev) =>
-                                        prev.filter((id) => id !== st.student_code)
-                                      );
-                                    }
-                                  }}
-                                  className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
-                                />
+                      remainingRegisteredStudents.map((st) => (
+                        <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
+                          {/* 學生名字 (點擊跳轉至該學員修改頁) */}
+                          <td className="px-4 py-3">
+                            <Link
+                              href={`/student/edit/${st.student_code}`}
+                              className="group flex flex-col hover:opacity-80"
+                            >
+                              <span className="font-bold text-purple-800 underline decoration-purple-300 group-hover:text-purple-950">
+                                {st.chinese_name}
+                              </span>
+                              {st.english_name && (
+                                <span className="text-xs text-gray-400">{st.english_name}</span>
                               )}
-                            </td>
-                            {/* 純文字顯示，不包含任何外部或跳轉超連結 */}
-                            <td className="px-4 py-3 font-bold text-gray-900">
-                              <div className="flex items-center gap-2">
-                                <span>
-                                  {st.chinese_name} {st.english_name ? `(${st.english_name})` : ''}
-                                </span>
-                                {isCurrentTarget && (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
-                                    當前編輯學員
-                                  </span>
-                                )}
-                                {isLockedRegistered && (
-                                  <span className="text-[10px] px-2 py-0.5 rounded bg-gray-200 text-gray-600 font-mono">
-                                    已屬: {st.class_code}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 font-mono font-semibold text-purple-800">
-                              {st.student_code}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-gray-600">
-                              {st.phone || '-'}
-                            </td>
-                          </tr>
-                        );
-                      })
+                            </Link>
+                          </td>
+
+                          {/* 性別 */}
+                          <td className="px-4 py-3 text-gray-600">{st.gender}</td>
+
+                          {/* 就讀學校 */}
+                          <td className="px-4 py-3 text-gray-600">{st.school || '-'}</td>
+
+                          {/* 付款情況 */}
+                          <td className="px-4 py-3 text-center">
+                            <span
+                              className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
+                                st.payment_status === 'yes'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {st.payment_status === 'yes' ? '已付款' : '未付款'}
+                            </span>
+                          </td>
+
+                          {/* 收據檢視 */}
+                          <td className="px-4 py-3 text-center">
+                            {st.receipt_url ? (
+                              <a
+                                href={st.receipt_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-purple-600 hover:text-purple-900 font-semibold underline text-xs"
+                              >
+                                檢視收據
+                              </a>
+                            ) : (
+                              <span className="text-gray-400 text-xs">無</span>
+                            )}
+                          </td>
+
+                          {/* 聯絡電話 (WhatsApp 連結) */}
+                          <td className="px-4 py-3 font-mono">
+                            <a
+                              href={getWhatsAppLink(st.phone, st.chinese_name)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
+                            >
+                              {st.phone}
+                            </a>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
 
-            {/* 底部確認儲存操作列 */}
+            {/* 5. 底部確認儲存操作列 */}
             <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-xs text-gray-600">
-                <span className="font-bold text-gray-900 block text-sm">分班設定摘要</span>
+                <span className="font-bold text-gray-900 block text-sm">分班指派設定確認</span>
+                調配學員：
+                <span className="font-bold text-purple-800 ml-1">
+                  {currentTargetStudent ? currentTargetStudent.chinese_name : '未選取'}
+                </span>
+                <span className="mx-2">|</span>
                 目標班別：
                 <span className="font-mono font-bold text-purple-700 ml-1">
                   {selectedClassForAssign || '未選取'}
                 </span>
-                <span className="mx-2">|</span>
-                指派學員數：
-                <span className="font-mono font-bold text-purple-700 ml-1">
-                  {selectedStudentsToAssign.length} 人
-                </span>
                 {selectedClassForAssign && (
                   <>
                     <span className="mx-2">|</span>
-                    班別剩餘學額：
+                    該班剩餘學額：
                     <span
                       className={`font-mono font-bold ml-1 ${
-                        selectedStudentsToAssign.length > remainingQuota
-                          ? 'text-rose-600'
-                          : 'text-emerald-700'
+                        remainingQuota <= 0 ? 'text-rose-600' : 'text-emerald-700'
                       }`}
                     >
                       {remainingQuota} 席
@@ -745,7 +892,7 @@ function ClassesAdminContent() {
 
               <button
                 type="button"
-                disabled={assigning}
+                disabled={assigning || !selectedClassForAssign || !currentTargetStudent}
                 onClick={handleAssignSubmit}
                 className="w-full sm:w-auto px-8 py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold text-sm rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer"
               >
@@ -755,7 +902,7 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* 課程新增 / 修改彈窗（雙時鐘輸入） */}
+        {/* Modal: 新增 / 修改課程 */}
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8">
