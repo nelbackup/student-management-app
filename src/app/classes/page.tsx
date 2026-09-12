@@ -83,8 +83,8 @@ function ClassesAdminContent() {
   const [selectedClassForAssign, setSelectedClassForAssign] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
 
-  // Admin modal state
-  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
+  // Admin modal state: 'create' | 'edit' | 'view' (read-only for historical classes)
+  const [modalMode, setModalMode] = useState<'create' | 'edit' | 'view' | null>(null);
   const [formData, setFormData] = useState<ClassRecord>(defaultForm);
   const [sessionDates, setSessionDates] = useState<string[]>(['2026-09-12']);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -112,19 +112,28 @@ function ClassesAdminContent() {
     };
   };
 
-  const isClassPast = (lessonDate: string, durationStr: string): boolean => {
+  // Determine if a class is historical (all session dates have concluded or status is suspended)
+  const isClassHistorical = (cls: ClassRecord): boolean => {
     try {
-      const parts = (durationStr || '').split('-');
+      if (cls.status === 'suspended' || cls.status === 'archived') return true;
+
+      const dateMatches = (cls.description + ' ' + cls.lesson_date).match(/\d{4}-\d{2}-\d{2}/g);
+      const datesToCheck = dateMatches && dateMatches.length > 0 ? dateMatches : [cls.lesson_date.split(',')[0].trim()];
+
+      const parts = (cls.duration || '').split('-');
       const endTimeStr = (parts[1] || parts[0] || '23:59').trim();
       const [endHour, endMin] = endTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
 
-      const primaryDate = lessonDate.split(',')[0].trim();
-      const classEnd = new Date(primaryDate);
-      classEnd.setHours(endHour, endMin, 0, 0);
+      const timestamps = datesToCheck.map((dStr) => {
+        const d = new Date(dStr);
+        d.setHours(endHour, endMin, 0, 0);
+        return d.getTime();
+      });
 
-      return new Date() > classEnd;
+      const latestTimestamp = Math.max(...timestamps);
+      return Date.now() > latestTimestamp;
     } catch {
-      return new Date(lessonDate) < new Date();
+      return new Date(cls.lesson_date.split(',')[0].trim()) < new Date();
     }
   };
 
@@ -180,7 +189,7 @@ function ClassesAdminContent() {
   }, []);
 
   const generateDynamicClassCode = (dateStr: string, categoryLabel: string, currentEditingCode?: string): string => {
-    if (modalMode === 'edit' && currentEditingCode) {
+    if ((modalMode === 'edit' || modalMode === 'view') && currentEditingCode) {
       return currentEditingCode;
     }
 
@@ -244,12 +253,12 @@ function ClassesAdminContent() {
     return sortClassList(classList, classSortField, classSortAsc);
   }, [classList, classSortField, classSortAsc]);
 
+  // Only active, upcoming, non-full classes can be chosen for assignment
   const sortedAvailableClasses = useMemo(() => {
     const available = classList.filter((cls) => {
-      const isPast = isClassPast(cls.lesson_date, cls.duration);
-      const isActive = cls.status !== 'suspended';
+      const isHistorical = isClassHistorical(cls);
       const hasQuota = (cls.enrolled_count || 0) < cls.max_capacity;
-      return !isPast && isActive && hasQuota;
+      return !isHistorical && hasQuota;
     });
     return sortClassList(available, assignClassSortField, assignClassSortAsc);
   }, [classList, assignClassSortField, assignClassSortAsc]);
@@ -363,6 +372,7 @@ function ClassesAdminContent() {
     setModalMode('create');
   };
 
+  // Open Edit Modal for Active Classes
   const handleOpenEdit = (cls: ClassRecord) => {
     setFieldErrors({});
     const parsedDates = cls.lesson_date.includes(',')
@@ -372,6 +382,18 @@ function ClassesAdminContent() {
     setSessionDates(parsedDates);
     setFormData(cls);
     setModalMode('edit');
+  };
+
+  // Open Read-Only Modal for Historical Classes
+  const handleOpenView = (cls: ClassRecord) => {
+    setFieldErrors({});
+    const parsedDates = cls.lesson_date.includes(',')
+      ? cls.lesson_date.split(',').map((d) => d.trim())
+      : [cls.lesson_date];
+
+    setSessionDates(parsedDates);
+    setFormData(cls);
+    setModalMode('view');
   };
 
   const handleAddSessionDate = () => {
@@ -428,8 +450,9 @@ function ClassesAdminContent() {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFeedback(null);
+    if (modalMode === 'view') return; // Strict guard against submitting read-only records
 
+    setFeedback(null);
     if (!validateForm()) {
       setFeedback({ type: 'error', message: '課程資料填寫有誤，請依紅色標籤修正。' });
       return;
@@ -458,7 +481,7 @@ function ClassesAdminContent() {
         ]);
         if (error) throw error;
         setFeedback({ type: 'success', message: `課程「${formData.class_code}」新增成功！` });
-      } else {
+      } else if (modalMode === 'edit') {
         const { error } = await supabase
           .from('classes')
           .update({
@@ -658,7 +681,6 @@ function ClassesAdminContent() {
           </button>
         </div>
 
-        {/* 反饋提示 */}
         {feedback && (
           <div
             className={`p-5 rounded-2xl border shadow-sm ${
@@ -822,9 +844,13 @@ function ClassesAdminContent() {
                 ) : (
                   sortedClassList.map((cls) => {
                     const isFull = (cls.enrolled_count || 0) >= cls.max_capacity;
+                    const isHistorical = isClassHistorical(cls);
 
                     return (
-                      <tr key={cls.class_code} className="hover:bg-sky-50/40 transition">
+                      <tr
+                        key={cls.class_code}
+                        className={`transition ${isHistorical ? 'bg-slate-50/50 hover:bg-slate-100/60' : 'hover:bg-sky-50/40'}`}
+                      >
                         <td className="px-4 py-3 font-mono font-bold text-sky-950 whitespace-nowrap">
                           {cls.class_code}
                         </td>
@@ -854,12 +880,25 @@ function ClassesAdminContent() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => handleOpenEdit(cls)}
-                            className="px-3 py-1 text-xs font-bold text-sky-900 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition cursor-pointer"
-                          >
-                            修改
-                          </button>
+                          {isHistorical ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenView(cls)}
+                              className="px-3 py-1 text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-300 transition cursor-pointer flex items-center justify-center gap-1 mx-auto"
+                              title="歷史課堂僅供檢視，不可修改"
+                            >
+                              <span>🔒</span>
+                              <span>檢視 (唯讀)</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(cls)}
+                              className="px-3 py-1 text-xs font-bold text-sky-900 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition cursor-pointer mx-auto"
+                            >
+                              修改
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -880,7 +919,6 @@ function ClassesAdminContent() {
               </p>
             </div>
 
-            {/* Selected Student Summary Card */}
             {currentTargetStudent && (
               <div className="bg-gradient-to-r from-sky-50 via-slate-50 to-amber-50/40 border-2 border-amber-300 rounded-2xl p-5 shadow-sm">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
@@ -958,7 +996,7 @@ function ClassesAdminContent() {
               </div>
             )}
 
-            {/* 可選有效課程表格 */}
+            {/* 可選有效課程表格 (已過濾歷史過期課堂與滿額班別) */}
             <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
               <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                 <div>
@@ -966,7 +1004,7 @@ function ClassesAdminContent() {
                     可供報讀與調配之有效班別
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    已自動過濾已截止過期課堂及已滿額班別（共 {sortedAvailableClasses.length} 個班別可選）
+                    已自動過濾歷史過期課堂及已滿額班別（共 {sortedAvailableClasses.length} 個班別可選）
                   </p>
                 </div>
               </div>
@@ -1123,7 +1161,7 @@ function ClassesAdminContent() {
               </table>
             </div>
 
-            {/* 僅於有勾選目標班別時，才顯示該班別已登記學員名單 */}
+            {/* 僅於有勾選目標班別時，才展開該班現有學員名單 */}
             {selectedClassForAssign ? (
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-sky-50/50">
@@ -1332,18 +1370,31 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* Modal: 新增 / 修改課程 */}
+        {/* Modal: 新增 / 修改 / 檢視唯讀課程 */}
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 my-8">
               <div className="flex items-center justify-between pb-4 mb-4 border-b">
                 <div>
-                  <h3 className="text-xl font-bold text-sky-950">
-                    {modalMode === 'create' ? '新增課程資料' : `修改課程: ${formData.class_code}`}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-sky-950">
+                      {modalMode === 'create'
+                        ? '新增課程資料'
+                        : modalMode === 'view'
+                        ? `檢視歷史課程: ${formData.class_code}`
+                        : `修改課程: ${formData.class_code}`}
+                    </h3>
+                    {modalMode === 'view' && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-300">
+                        🔒 唯讀存檔
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {modalMode === 'create' 
                       ? '系統將依所選日期與類別自動生成動態課程編號' 
+                      : modalMode === 'view'
+                      ? '此課堂排程已全部結束，資料鎖定僅供檢閱'
                       : '調整現有課堂排程或學額設定'}
                   </p>
                 </div>
@@ -1355,6 +1406,13 @@ function ClassesAdminContent() {
                   ✕
                 </button>
               </div>
+
+              {modalMode === 'view' && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
+                  <span>ℹ️</span>
+                  <span>歷史課堂提示：本課程各堂別均已過期結課，所有資料與學額設定均鎖定為唯讀狀態。</span>
+                </div>
+              )}
 
               <form onSubmit={handleFormSubmit} className="space-y-4" noValidate>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1377,9 +1435,12 @@ function ClassesAdminContent() {
                       課程類別 <span className="text-rose-600">*</span>
                     </label>
                     <select
+                      disabled={modalMode === 'view'}
                       value={formData.category}
                       onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm bg-white font-medium focus:ring-2 focus:ring-sky-700 focus:outline-none"
+                      className={`w-full px-3 py-2 border rounded-xl text-sm font-medium focus:ring-2 focus:ring-sky-700 focus:outline-none ${
+                        modalMode === 'view' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200' : 'bg-white border-slate-300'
+                      }`}
                     >
                       {CATEGORY_OPTIONS.map((cat) => (
                         <option key={cat.code} value={cat.label}>
@@ -1396,6 +1457,7 @@ function ClassesAdminContent() {
                   </label>
                   <input
                     type="text"
+                    disabled={modalMode === 'view'}
                     value={formData.class_name}
                     onChange={(e) => {
                       setFormData({ ...formData, class_name: e.target.value });
@@ -1403,7 +1465,11 @@ function ClassesAdminContent() {
                     }}
                     placeholder="例如：女拔協恩週末強化專班 / 考小實戰遊戲班 (A組)"
                     className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                      fieldErrors.class_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
+                      modalMode === 'view'
+                        ? 'bg-slate-100 text-slate-600 cursor-not-allowed border-slate-200'
+                        : fieldErrors.class_name
+                        ? 'border-rose-400 bg-rose-50/30'
+                        : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                     }`}
                   />
                   {fieldErrors.class_name && (
@@ -1416,13 +1482,15 @@ function ClassesAdminContent() {
                     <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                       <span>📅</span> 上課堂數日期設定 <span className="text-rose-600">*</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={handleAddSessionDate}
-                      className="text-xs font-bold text-sky-900 hover:text-sky-950 bg-white px-2.5 py-1 rounded-lg border border-sky-300 cursor-pointer shadow-sm"
-                    >
-                      + 增加課堂日期
-                    </button>
+                    {modalMode !== 'view' && (
+                      <button
+                        type="button"
+                        onClick={handleAddSessionDate}
+                        className="text-xs font-bold text-sky-900 hover:text-sky-950 bg-white px-2.5 py-1 rounded-lg border border-sky-300 cursor-pointer shadow-sm"
+                      >
+                        + 增加課堂日期
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
@@ -1433,11 +1501,14 @@ function ClassesAdminContent() {
                         </span>
                         <input
                           type="date"
+                          disabled={modalMode === 'view'}
                           value={d}
                           onChange={(e) => handleSessionDateChange(index, e.target.value)}
-                          className="flex-1 px-3 py-1.5 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-sky-700 focus:outline-none"
+                          className={`flex-1 px-3 py-1.5 border rounded-xl text-xs font-mono focus:ring-2 focus:ring-sky-700 focus:outline-none ${
+                            modalMode === 'view' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200' : 'border-slate-300 bg-white'
+                          }`}
                         />
-                        {sessionDates.length > 1 && (
+                        {modalMode !== 'view' && sessionDates.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveSessionDate(index)}
@@ -1464,13 +1535,18 @@ function ClassesAdminContent() {
                     type="number"
                     min={1}
                     max={100}
+                    disabled={modalMode === 'view'}
                     value={formData.max_capacity}
                     onChange={(e) => {
                       setFormData({ ...formData, max_capacity: parseInt(e.target.value, 10) || 0 });
                       if (fieldErrors.max_capacity) setFieldErrors({ ...fieldErrors, max_capacity: '' });
                     }}
                     className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                      fieldErrors.max_capacity ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
+                      modalMode === 'view'
+                        ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200'
+                        : fieldErrors.max_capacity
+                        ? 'border-rose-400 bg-rose-50/30'
+                        : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                     }`}
                   />
                   {fieldErrors.max_capacity && (
@@ -1478,39 +1554,42 @@ function ClassesAdminContent() {
                   )}
                 </div>
 
+                {/* 雙時鐘上課時段設定 (檢視模式下直接展示唯讀時段，停用拖曳調整) */}
                 <div className="pt-1">
                   <label className="block text-xs font-bold text-slate-800 mb-1">
-                    上課時段 (雙時鐘設定) <span className="text-rose-600">*</span>
+                    上課時段 {modalMode !== 'view' && '(雙時鐘設定)'} <span className="text-rose-600">*</span>
                   </label>
 
                   <div className="mb-2.5 p-2.5 bg-sky-50 border border-sky-200 rounded-xl flex items-center justify-between">
-                    <span className="text-xs text-slate-600 font-medium">目前設定時段：</span>
+                    <span className="text-xs text-slate-600 font-medium">上課時段：</span>
                     <span className="font-mono font-bold text-sky-950 text-sm tracking-wide">
                       {formData.duration}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <AnalogClockPicker
-                      label="開始時間"
-                      value={getStartEndTime(formData.duration).start}
-                      onChange={(newStart) => {
-                        const currentEnd = getStartEndTime(formData.duration).end;
-                        setFormData({ ...formData, duration: `${newStart} - ${currentEnd}` });
-                        if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: '' });
-                      }}
-                    />
+                  {modalMode !== 'view' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <AnalogClockPicker
+                        label="開始時間"
+                        value={getStartEndTime(formData.duration).start}
+                        onChange={(newStart) => {
+                          const currentEnd = getStartEndTime(formData.duration).end;
+                          setFormData({ ...formData, duration: `${newStart} - ${currentEnd}` });
+                          if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: '' });
+                        }}
+                      />
 
-                    <AnalogClockPicker
-                      label="結束時間"
-                      value={getStartEndTime(formData.duration).end}
-                      onChange={(newEnd) => {
-                        const currentStart = getStartEndTime(formData.duration).start;
-                        setFormData({ ...formData, duration: `${currentStart} - ${newEnd}` });
-                        if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: '' });
-                      }}
-                    />
-                  </div>
+                      <AnalogClockPicker
+                        label="結束時間"
+                        value={getStartEndTime(formData.duration).end}
+                        onChange={(newEnd) => {
+                          const currentStart = getStartEndTime(formData.duration).start;
+                          setFormData({ ...formData, duration: `${currentStart} - ${newEnd}` });
+                          if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: '' });
+                        }}
+                      />
+                    </div>
+                  )}
 
                   {fieldErrors.duration && (
                     <p className="mt-2 text-xs text-rose-600 font-semibold bg-rose-50 p-2 rounded-lg border border-rose-200">
@@ -1523,28 +1602,45 @@ function ClassesAdminContent() {
                   <label className="block text-xs font-bold text-slate-800 mb-1">課堂詳情 / 授課地點備註</label>
                   <textarea
                     rows={2}
+                    disabled={modalMode === 'view'}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="請輸入授課地點、教材說明或導師安排備註..."
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-700"
+                    className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none ${
+                      modalMode === 'view'
+                        ? 'bg-slate-100 text-slate-600 cursor-not-allowed border-slate-200'
+                        : 'bg-white border-slate-300 focus:ring-2 focus:ring-sky-700'
+                    }`}
                   />
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t">
-                  <button
-                    type="button"
-                    onClick={() => setModalMode(null)}
-                    className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="px-6 py-2.5 text-sm font-bold text-white bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 rounded-xl shadow transition disabled:opacity-50 cursor-pointer"
-                  >
-                    {saving ? '正在儲存...' : modalMode === 'create' ? '確認新增' : '儲存變更'}
-                  </button>
+                  {modalMode === 'view' ? (
+                    <button
+                      type="button"
+                      onClick={() => setModalMode(null)}
+                      className="px-6 py-2.5 text-sm font-bold text-white bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 rounded-xl shadow transition cursor-pointer"
+                    >
+                      關閉
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setModalMode(null)}
+                        className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="px-6 py-2.5 text-sm font-bold text-white bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 rounded-xl shadow transition disabled:opacity-50 cursor-pointer"
+                      >
+                        {saving ? '正在儲存...' : modalMode === 'create' ? '確認新增' : '儲存變更'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </form>
             </div>
