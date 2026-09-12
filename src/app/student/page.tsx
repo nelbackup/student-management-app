@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
@@ -43,13 +43,19 @@ interface ParsedExcelRow {
   validationError?: string;
 }
 
+type StudentSortField = 'name' | 'gender' | 'school' | 'payment' | 'receipt' | 'phone';
+
 export default function StudentManagementPage() {
   const [activeTab, setActiveTab] = useState<'listing' | 'enrolment'>('listing');
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [classList, setClassList] = useState<ClassOption[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 手動登記表單狀態與欄位校驗
+  // Sorting state
+  const [sortField, setSortField] = useState<StudentSortField>('name');
+  const [sortAsc, setSortAsc] = useState<boolean>(true);
+
+  // Manual Form State
   const [formData, setFormData] = useState({
     chinese_name: '',
     english_name: '',
@@ -62,9 +68,9 @@ export default function StudentManagementPage() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [savingManual, setSavingManual] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string; details?: string[] } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // 展開式試算表批次匯入狀態
+  // Excel Migration Inline State
   const [showExcelSection, setShowExcelSection] = useState(false);
   const [excelRows, setExcelRows] = useState<ParsedExcelRow[]>([]);
   const [excelFileName, setExcelFileName] = useState('');
@@ -76,8 +82,7 @@ export default function StudentManagementPage() {
     try {
       const { data: studentData, error: studentErr } = await supabase
         .from('students')
-        .select('*')
-        .order('student_code', { ascending: false });
+        .select('*');
       if (studentErr) throw studentErr;
       setStudents(studentData || []);
 
@@ -98,6 +103,50 @@ export default function StudentManagementPage() {
     loadInitialData();
   }, []);
 
+  const handleSort = (field: StudentSortField) => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortField(field);
+      setSortAsc(true);
+    }
+  };
+
+  const sortedStudents = useMemo(() => {
+    return [...students].sort((a, b) => {
+      let res = 0;
+      switch (sortField) {
+        case 'name': {
+          const nameA = a.chinese_name || a.english_name || '';
+          const nameB = b.chinese_name || b.english_name || '';
+          res = nameA.localeCompare(nameB, 'zh-Hant');
+          break;
+        }
+        case 'gender':
+          res = a.gender.localeCompare(b.gender, 'zh-Hant');
+          break;
+        case 'school':
+          res = (a.school || '').localeCompare(b.school || '', 'zh-Hant');
+          break;
+        case 'payment':
+          res = a.payment_status.localeCompare(b.payment_status);
+          break;
+        case 'receipt':
+          res = (a.receipt_url ? '1' : '0').localeCompare(b.receipt_url ? '1' : '0');
+          break;
+        case 'phone':
+          res = a.phone.localeCompare(b.phone);
+          break;
+      }
+      return sortAsc ? res : -res;
+    });
+  }, [students, sortField, sortAsc]);
+
+  const renderSortIndicator = (field: StudentSortField) => {
+    if (sortField !== field) return <span className="ml-1 text-purple-300 opacity-60">↕</span>;
+    return <span className="ml-1 text-amber-300 font-bold">{sortAsc ? '▲' : '▼'}</span>;
+  };
+
   const getWhatsAppLink = (phone: string, studentName: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
@@ -105,7 +154,6 @@ export default function StudentManagementPage() {
     return `https://wa.me/${fullNumber}?text=${text}`;
   };
 
-  // 手動登記欄位校驗
   const validateManualForm = (): boolean => {
     const errors: Record<string, string> = {};
 
@@ -214,7 +262,6 @@ export default function StudentManagementPage() {
     }
   };
 
-  // 試算表解析與校驗
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFeedback(null);
     const file = e.target.files?.[0];
@@ -350,7 +397,6 @@ export default function StudentManagementPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* 頂部標題 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">學員管理中心</h1>
@@ -366,7 +412,6 @@ export default function StudentManagementPage() {
           </div>
         </div>
 
-        {/* 頁籤切換 */}
         <div className="flex border-b border-gray-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
             onClick={() => {
@@ -396,7 +441,6 @@ export default function StudentManagementPage() {
           </button>
         </div>
 
-        {/* 頂部摘要警示橫幅 */}
         {feedback && (
           <div
             className={`p-4 rounded-xl text-sm font-medium border flex items-center gap-2 ${
@@ -410,37 +454,77 @@ export default function StudentManagementPage() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 頁籤 1: 學員名冊列表 (完全對齊點名名冊 6 欄位樣式與功能)                     */}
-        {/* ========================================================================= */}
+        {/* 頁籤 1: 學員名冊列表 (含欄位排序) */}
         {activeTab === 'listing' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-purple-700 text-white">
+              <thead className="bg-purple-700 text-white select-none">
                 <tr>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold">學生名字</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold">性別</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold">就讀學校</th>
-                  <th className="px-4 py-3.5 text-center text-xs font-semibold">付款情況</th>
-                  <th className="px-4 py-3.5 text-center text-xs font-semibold">收據檢視</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold">聯絡電話</th>
+                  <th
+                    onClick={() => handleSort('name')}
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                  >
+                    <div className="flex items-center">
+                      <span>學生名字</span>
+                      {renderSortIndicator('name')}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('gender')}
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                  >
+                    <div className="flex items-center">
+                      <span>性別</span>
+                      {renderSortIndicator('gender')}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('school')}
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                  >
+                    <div className="flex items-center">
+                      <span>就讀學校</span>
+                      {renderSortIndicator('school')}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('payment')}
+                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>付款情況</span>
+                      {renderSortIndicator('payment')}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('receipt')}
+                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>收據檢視</span>
+                      {renderSortIndicator('receipt')}
+                    </div>
+                  </th>
+                  <th
+                    onClick={() => handleSort('phone')}
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                  >
+                    <div className="flex items-center">
+                      <span>聯絡電話</span>
+                      {renderSortIndicator('phone')}
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-gray-400">
-                      載入學員名單中...
-                    </td>
-                  </tr>
-                ) : students.length === 0 ? (
+                {sortedStudents.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-gray-400">
                       暫無學員登記記錄。
                     </td>
                   </tr>
                 ) : (
-                  students.map((st) => (
+                  sortedStudents.map((st) => (
                     <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
                       <td className="px-4 py-3">
                         <Link
@@ -500,9 +584,7 @@ export default function StudentManagementPage() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 頁籤 2: 新學員登記報讀 (含展開式試算表批次匯入)                             */}
-        {/* ========================================================================= */}
+        {/* 頁籤 2: 新學員登記報讀 */}
         {activeTab === 'enrolment' && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">

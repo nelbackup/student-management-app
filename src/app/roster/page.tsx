@@ -34,12 +34,18 @@ interface ClassItem {
   status?: string;
 }
 
+type SortField = 'name' | 'gender' | 'school' | 'payment' | 'receipt' | 'phone' | 'attendance';
+
 export default function RosterPage() {
   const [allClasses, setAllClasses] = useState<ClassItem[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedSession, setSelectedSession] = useState<string>('全部堂別');
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Sorting state
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortAsc, setSortAsc] = useState<boolean>(true);
 
   useEffect(() => {
     const fetchAvailableClasses = async () => {
@@ -119,13 +125,55 @@ export default function RosterPage() {
     fetchStudents();
   }, [selectedDate, allClasses]);
 
-  const filteredStudents = useMemo(() => {
-    if (selectedSession === '全部堂別') return students;
-    const targetCodes = allClasses
-      .filter((c) => c.lesson_date === selectedDate && c.duration === selectedSession)
-      .map((c) => c.class_code);
-    return students.filter((s) => targetCodes.includes(s.class_code));
-  }, [students, allClasses, selectedDate, selectedSession]);
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortField(field);
+      setSortAsc(true);
+    }
+  };
+
+  const sortedStudents = useMemo(() => {
+    let filtered = students;
+    if (selectedSession !== '全部堂別') {
+      const targetCodes = allClasses
+        .filter((c) => c.lesson_date === selectedDate && c.duration === selectedSession)
+        .map((c) => c.class_code);
+      filtered = students.filter((s) => targetCodes.includes(s.class_code));
+    }
+
+    return [...filtered].sort((a, b) => {
+      let res = 0;
+      switch (sortField) {
+        case 'name': {
+          const nameA = a.chinese_name || a.english_name || '';
+          const nameB = b.chinese_name || b.english_name || '';
+          res = nameA.localeCompare(nameB, 'zh-Hant');
+          break;
+        }
+        case 'gender':
+          res = a.gender.localeCompare(b.gender, 'zh-Hant');
+          break;
+        case 'school':
+          res = (a.school || '').localeCompare(b.school || '', 'zh-Hant');
+          break;
+        case 'payment':
+          res = a.payment_status.localeCompare(b.payment_status);
+          break;
+        case 'receipt':
+          res = (a.receipt_url ? '1' : '0').localeCompare(b.receipt_url ? '1' : '0');
+          break;
+        case 'phone':
+          res = a.phone.localeCompare(b.phone);
+          break;
+        case 'attendance':
+          res = (a.attendance_status === b.attendance_status ? 0 : a.attendance_status ? 1 : -1);
+          break;
+      }
+      return sortAsc ? res : -res;
+    });
+  }, [students, allClasses, selectedDate, selectedSession, sortField, sortAsc]);
 
   const currentSelectedClasses = useMemo(() => {
     if (!selectedDate) return [];
@@ -164,10 +212,14 @@ export default function RosterPage() {
     return `https://wa.me/${fullNumber}?text=${text}`;
   };
 
+  const renderSortIndicator = (field: SortField) => {
+    if (sortField !== field) return <span className="ml-1 text-purple-300 opacity-60">↕</span>;
+    return <span className="ml-1 text-amber-300 font-bold">{sortAsc ? '▲' : '▼'}</span>;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* 頂部選單 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">課堂點名名冊</h1>
@@ -236,7 +288,7 @@ export default function RosterPage() {
               <span>📌</span> 所選課堂資訊摘要
             </h2>
             <span className="text-xs font-bold text-purple-800 bg-purple-200/60 px-2.5 py-1 rounded-full">
-              報讀總計：{filteredStudents.length} 人
+              報讀總計：{sortedStudents.length} 人
             </span>
           </div>
 
@@ -255,7 +307,7 @@ export default function RosterPage() {
                         {cls.class_code}
                       </span>
                       <span className="text-[11px] font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
-                        {cls.category || '常規課程'}
+                        {cls.category || '常規專班'}
                       </span>
                     </div>
                     <div className="font-bold text-sm text-gray-900">{cls.class_name}</div>
@@ -270,29 +322,85 @@ export default function RosterPage() {
           )}
         </div>
 
-        {/* 6 欄位點名表格（僅簽到勾選框可操作，勾選後立即轉唯讀） */}
+        {/* 點名表格（含欄位排序功能） */}
         <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-purple-700 text-white">
+            <thead className="bg-purple-700 text-white select-none">
               <tr>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold">學生名字</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold">性別</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold">就讀學校</th>
-                <th className="px-4 py-3.5 text-center text-xs font-semibold">付款情況</th>
-                <th className="px-4 py-3.5 text-center text-xs font-semibold">收據檢視</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold">聯絡電話</th>
-                <th className="px-4 py-3.5 text-center text-xs font-semibold">出席簽到</th>
+                <th
+                  onClick={() => handleSort('name')}
+                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center">
+                    <span>學生名字</span>
+                    {renderSortIndicator('name')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('gender')}
+                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center">
+                    <span>性別</span>
+                    {renderSortIndicator('gender')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('school')}
+                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center">
+                    <span>就讀學校</span>
+                    {renderSortIndicator('school')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('payment')}
+                  className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center justify-center">
+                    <span>付款情況</span>
+                    {renderSortIndicator('payment')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('receipt')}
+                  className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center justify-center">
+                    <span>收據檢視</span>
+                    {renderSortIndicator('receipt')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('phone')}
+                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center">
+                    <span>聯絡電話</span>
+                    {renderSortIndicator('phone')}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('attendance')}
+                  className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                >
+                  <div className="flex items-center justify-center">
+                    <span>出席簽到</span>
+                    {renderSortIndicator('attendance')}
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredStudents.length === 0 ? (
+              {sortedStudents.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-gray-400">
-                    {loading ? '正在讀取名冊記錄...' : '所選日期及時段暫無學生記錄'}
+                    {loading ? '正在讀取名冊記錄...' : '所選條件下暫無學生記錄'}
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((st) => (
+                sortedStudents.map((st) => (
                   <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
                     <td className="px-4 py-3">
                       <Link
