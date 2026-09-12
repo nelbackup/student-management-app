@@ -85,17 +85,20 @@ function ClassesAdminContent() {
 
       if (classErr) throw classErr;
 
-      // 2. Query all students
+      // 2. Query students
       const { data: rawStudents, error: studentErr } = await supabase
         .from('students')
         .select('student_code, chinese_name, english_name, phone, class_code');
 
       if (studentErr) throw studentErr;
 
-      setStudents(rawStudents || []);
+      const currentStudents = (rawStudents || []).filter(
+        (s) => s.student_code && (s.chinese_name || s.english_name)
+      );
+      setStudents(currentStudents);
 
       const countMap: Record<string, number> = {};
-      (rawStudents || []).forEach((s) => {
+      currentStudents.forEach((s) => {
         if (s.class_code) {
           countMap[s.class_code] = (countMap[s.class_code] || 0) + 1;
         }
@@ -112,8 +115,7 @@ function ClassesAdminContent() {
 
       setClassList(aggregated);
 
-      // Pre-select student if passed via query param
-      if (preselectedStudent && rawStudents?.some((s) => s.student_code === preselectedStudent)) {
+      if (preselectedStudent && currentStudents.some((s) => s.student_code === preselectedStudent)) {
         setSelectedStudentsToAssign([preselectedStudent]);
       }
     } catch (err: any) {
@@ -126,6 +128,23 @@ function ClassesAdminContent() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Sort students: current student on top, then alphabetical by Chinese name
+  const sortedStudentsForAssignment = useMemo(() => {
+    const list = [...students];
+    return list.sort((a, b) => {
+      // Pin current student from searchParams to the very top
+      if (preselectedStudent) {
+        if (a.student_code === preselectedStudent) return -1;
+        if (b.student_code === preselectedStudent) return 1;
+      }
+
+      // Alphabetical comparison using Traditional Chinese locale collation
+      const nameA = a.chinese_name || a.english_name || '';
+      const nameB = b.chinese_name || b.english_name || '';
+      return nameA.localeCompare(nameB, 'zh-Hant');
+    });
+  }, [students, preselectedStudent]);
 
   const availableClassesForAssignment = useMemo(() => {
     return classList.filter(
@@ -142,7 +161,6 @@ function ClassesAdminContent() {
     return targetClassData.max_capacity - (targetClassData.enrolled_count || 0);
   }, [targetClassData]);
 
-  // Handle Class Creation / Edit Validation
   const validateForm = (): boolean => {
     const errs: Record<string, string> = {};
     const cleanCode = formData.class_code.trim();
@@ -248,26 +266,21 @@ function ClassesAdminContent() {
     }
   };
 
-  // Student Assignment Validation & Database Sync
   const handleAssignSubmit = async () => {
     setFeedback(null);
 
-    // 1. Validation: Class selection
     if (!selectedClassForAssign) {
-      setFeedback({ type: 'error', message: '請在表格勾選欲指派的目標課堂。' });
+      setFeedback({ type: 'error', message: '請在課程表格勾選目標課堂。' });
       return;
     }
 
-    // 2. Validation: Student selection
     if (selectedStudentsToAssign.length === 0) {
-      setFeedback({ type: 'error', message: '請於學員名單中至少勾選一位欲指派的學員。' });
+      setFeedback({ type: 'error', message: '請於學員名單中勾選欲指派的學員。' });
       return;
     }
 
-    // 3. Validation: Quota limit
     if (!targetClassData) return;
 
-    // Calculate how many selected students are NOT already in this target class
     const newlyAddedCount = selectedStudentsToAssign.filter((sId) => {
       const current = students.find((s) => s.student_code === sId);
       return current?.class_code !== selectedClassForAssign;
@@ -283,7 +296,6 @@ function ClassesAdminContent() {
 
     setAssigning(true);
     try {
-      // Find source classes that will lose students
       const affectedSourceClasses = new Set<string>();
       selectedStudentsToAssign.forEach((sId) => {
         const studentObj = students.find((s) => s.student_code === sId);
@@ -292,7 +304,6 @@ function ClassesAdminContent() {
         }
       });
 
-      // A. Update student class assignment in students table
       const { error: studentUpdateErr } = await supabase
         .from('students')
         .update({ class_code: selectedClassForAssign })
@@ -300,14 +311,12 @@ function ClassesAdminContent() {
 
       if (studentUpdateErr) throw studentUpdateErr;
 
-      // B. Update enrolled_count for the target class
       const nextTargetCount = (targetClassData.enrolled_count || 0) + newlyAddedCount;
       await supabase
         .from('classes')
         .update({ enrolled_count: nextTargetCount })
         .eq('class_code', selectedClassForAssign);
 
-      // C. Update enrolled_count for previous source classes
       for (const srcCode of Array.from(affectedSourceClasses)) {
         const { count, error: countErr } = await supabase
           .from('students')
@@ -324,7 +333,7 @@ function ClassesAdminContent() {
 
       setFeedback({
         type: 'success',
-        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫已同步更新人數！`,
+        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫人數已同步！`,
       });
 
       setSelectedStudentsToAssign([]);
@@ -377,7 +386,7 @@ function ClassesAdminContent() {
                 : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
             }`}
           >
-            📋 a) 課程詳細管理 (Full Classes Listing)
+            📋 Class Listing
           </button>
           <button
             onClick={() => {
@@ -390,11 +399,11 @@ function ClassesAdminContent() {
                 : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
             }`}
           >
-            🎓 b) 學員分班指派 (Available Classes & Student Assignment)
+            🎓 Student Class Assignment
           </button>
         </div>
 
-        {/* Feedback Alert */}
+        {/* Feedback Banner */}
         {feedback && (
           <div
             className={`p-4 mb-6 rounded-xl text-sm font-medium border flex items-center gap-2 ${
@@ -408,7 +417,9 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* MODE A: Full Classes Listing */}
+        {/* ========================================================================= */}
+        {/* TAB 1: Class Listing                                                      */}
+        {/* ========================================================================= */}
         {viewTab === 'admin' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
@@ -489,17 +500,19 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* MODE B: Available Classes for Student Assignment */}
+        {/* ========================================================================= */}
+        {/* TAB 2: Student Class Assignment                                           */}
+        {/* ========================================================================= */}
         {viewTab === 'assignment' && (
           <div className="space-y-6">
             <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl">
               <h2 className="text-sm font-bold text-purple-900">分班指派作業流程</h2>
               <p className="text-xs text-purple-700 mt-0.5">
-                步驟 1：於表格勾選要指派的課堂 ➔ 步驟 2：於下方勾選欲調配的學員 ➔ 步驟 3：在頁面底部點擊「確認儲存學員分班指派」
+                步驟 1：勾選目標課堂 ➔ 步驟 2：從下表勾選學員（當前編輯學員置頂，其餘按中文姓名筆劃/拼音排序） ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
               </p>
             </div>
 
-            {/* Classes Table with Assignment Checkboxes */}
+            {/* Target Classes Selection Table */}
             <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
                 <thead className="bg-purple-700 text-white text-xs font-semibold uppercase">
@@ -576,12 +589,12 @@ function ClassesAdminContent() {
               </table>
             </div>
 
-            {/* Student Picker Checklist */}
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-100">
+            {/* Student Assignment List with Pinned Top Student & Alphabetical Order */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                 <div>
                   <h3 className="text-base font-bold text-gray-900">
-                    選取欲指派的學員
+                    現有名單學員 (Current & Enrolled Students)
                     {selectedClassForAssign && (
                       <span className="text-purple-700 font-mono ml-2">
                         ➔ 目標堂別: {selectedClassForAssign}
@@ -608,61 +621,90 @@ function ClassesAdminContent() {
                 </button>
               </div>
 
-              <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 border border-gray-100 rounded-xl">
-                {students.map((st) => {
-                  const isChecked = selectedStudentsToAssign.includes(st.student_code);
-                  const isAlreadyInClass = selectedClassForAssign && st.class_code === selectedClassForAssign;
+              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
+                  <thead className="bg-gray-100 text-gray-700 text-xs font-bold uppercase sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-3 text-center w-16">選取</th>
+                      <th className="px-4 py-3">學員姓名</th>
+                      <th className="px-4 py-3">學員編號</th>
+                      <th className="px-4 py-3">流動電話</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sortedStudentsForAssignment.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-gray-400 text-xs">
+                          無可分配學員記錄
+                        </td>
+                      </tr>
+                    ) : (
+                      sortedStudentsForAssignment.map((st) => {
+                        const isChecked = selectedStudentsToAssign.includes(st.student_code);
+                        const isCurrentActiveStudent = st.student_code === preselectedStudent;
 
-                  return (
-                    <label
-                      key={st.student_code}
-                      className={`flex items-center justify-between p-3 text-xs cursor-pointer hover:bg-gray-50 transition ${
-                        isChecked ? 'bg-purple-50/60' : ''
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={Boolean(isAlreadyInClass)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedStudentsToAssign((prev) => [...prev, st.student_code]);
-                            } else {
+                        return (
+                          <tr
+                            key={st.student_code}
+                            onClick={() => {
                               setSelectedStudentsToAssign((prev) =>
-                                prev.filter((id) => id !== st.student_code)
+                                isChecked
+                                  ? prev.filter((id) => id !== st.student_code)
+                                  : [...prev, st.student_code]
                               );
-                            }
-                          }}
-                          className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer disabled:opacity-40"
-                        />
-                        <div>
-                          <span className="font-bold text-gray-900 text-sm">
-                            {st.chinese_name} ({st.english_name})
-                          </span>
-                          <span className="font-mono text-gray-400 ml-2">[{st.student_code}]</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-gray-500">{st.phone}</span>
-                        <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
-                            isAlreadyInClass
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-gray-100 text-gray-600'
-                          }`}
-                        >
-                          現屬：{st.class_code || '未分班'}
-                        </span>
-                      </div>
-                    </label>
-                  );
-                })}
+                            }}
+                            className={`cursor-pointer transition ${
+                              isCurrentActiveStudent
+                                ? 'bg-amber-50/70 border-l-4 border-l-amber-500'
+                                : isChecked
+                                ? 'bg-purple-50/60'
+                                : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedStudentsToAssign((prev) => [...prev, st.student_code]);
+                                  } else {
+                                    setSelectedStudentsToAssign((prev) =>
+                                      prev.filter((id) => id !== st.student_code)
+                                    );
+                                  }
+                                }}
+                                className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                              />
+                            </td>
+                            <td className="px-4 py-3 font-bold text-gray-900">
+                              <div className="flex items-center gap-2">
+                                <span>
+                                  {st.chinese_name} {st.english_name ? `(${st.english_name})` : ''}
+                                </span>
+                                {isCurrentActiveStudent && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
+                                    當前編輯學員
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 font-mono font-semibold text-purple-800">
+                              {st.student_code}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-gray-600">
+                              {st.phone || '-'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {/* Bottom Save & Validation Confirmation Bar */}
+            {/* Bottom Save Confirmation Bar */}
             <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-xs text-gray-600">
                 <span className="font-bold text-gray-900 block text-sm">分班設定摘要</span>
