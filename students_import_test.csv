@@ -1,0 +1,6 @@
+﻿學生編號,中文姓名,英文姓名,就讀學校,性別,聯絡電話,班別代碼,付款情況,收據檢視
+,陳大文,Chan Tai Man,拔萃男書院,男,91234567,C2026-A,yes,https://example.com/receipt1.jpg
+,李小美,Lee Siu Mei,瑪利諾修院學校,女,92345678,C2026-A,no,
+,張浩然,Cheung Ho Yin,喇沙小學,男,93456789,C2026-B,yes,https://example.com/receipt2.jpg
+,黃心儀,Wong Sum Yee,聖保祿學校,女,94567890,C2026-B,no,
+S0000000001,測試覆蓋,Test Update,聖若瑟小學,男,95678901,C2026-A,yes,https://example.com/receipt3.jpg

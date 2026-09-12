@@ -38,7 +38,6 @@ export default function RosterPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch classes and students based on selected date
   const fetchData = async (dateStr: string) => {
     setLoading(true);
     try {
@@ -63,7 +62,7 @@ export default function RosterPage() {
         setStudents([]);
       }
     } catch (err: any) {
-      console.error('Error loading roster data:', err.message || err);
+      console.error('Error loading roster:', err.message || err);
     } finally {
       setLoading(false);
     }
@@ -73,12 +72,10 @@ export default function RosterPage() {
     fetchData(selectedDate);
   }, [selectedDate]);
 
-  // Session options derived from fetched classes
   const sessionOptions = useMemo(() => {
     return Array.from(new Set(classes.map((c) => c.duration))).filter(Boolean);
   }, [classes]);
 
-  // Filter students based on selected session duration
   const filteredStudents = useMemo(() => {
     if (selectedSession === 'ALL') return students;
     const targetCodes = classes
@@ -87,14 +84,12 @@ export default function RosterPage() {
     return students.filter((s) => targetCodes.includes(s.class_code));
   }, [students, classes, selectedSession]);
 
-  // Aggregate statistics
   const stats = useMemo(() => {
     const boys = filteredStudents.filter((s) => s.gender === '男').length;
     const girls = filteredStudents.filter((s) => s.gender === '女').length;
     return { boys, girls, total: filteredStudents.length };
   }, [filteredStudents]);
 
-  // Toggle payment status
   const handlePaymentToggle = async (studentCode: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'yes' ? 'no' : 'yes';
     setStudents((prev) =>
@@ -107,12 +102,11 @@ export default function RosterPage() {
       .eq('student_code', studentCode);
 
     if (error) {
-      console.error('Failed to update payment status:', error.message);
+      console.error('Failed to update payment:', error.message);
       fetchData(selectedDate);
     }
   };
 
-  // Toggle attendance status
   const handleAttendanceToggle = async (studentCode: string, currentStatus: boolean) => {
     const nextStatus = !currentStatus;
     setStudents((prev) =>
@@ -130,7 +124,6 @@ export default function RosterPage() {
     }
   };
 
-  // Format WhatsApp Link
   const getWhatsAppLink = (phone: string, studentName: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
@@ -140,19 +133,27 @@ export default function RosterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Top Header & Intake Action */}
+      <div className="max-w-7xl mx-auto">
+        {/* Navigation & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">課堂點名名冊</h1>
             <p className="text-sm text-gray-500 mt-1">即時學員簽到、繳費確認與 WhatsApp 聯絡</p>
           </div>
-          <Link
-            href="/import"
-            className="inline-flex items-center justify-center px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
-          >
-            + 匯入學員
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/import/excel"
+              className="inline-flex items-center justify-center px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
+            >
+              Excel 遷移
+            </Link>
+            <Link
+              href="/import"
+              className="inline-flex items-center justify-center px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
+            >
+              + 匯入學員
+            </Link>
+          </div>
         </div>
 
         {/* Filters and Controls */}
@@ -188,7 +189,6 @@ export default function RosterPage() {
             </div>
           </div>
 
-          {/* Roster Demographics Summary Bar */}
           <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between text-sm text-gray-600">
             <div>
               <span className="font-semibold text-gray-800">名冊統計：</span> {stats.boys} 男 / {stats.girls} 女 
@@ -211,12 +211,13 @@ export default function RosterPage() {
                 <th className="px-4 py-3 text-center text-xs font-semibold uppercase">收據檢視</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase">聯絡電話</th>
                 <th className="px-4 py-3 text-center text-xs font-semibold uppercase">出席簽到</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-sm">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400">
+                  <td colSpan={9} className="py-12 text-center text-gray-400">
                     {loading ? '正在讀取記錄...' : '當日無指定學生記錄'}
                   </td>
                 </tr>
@@ -275,6 +276,14 @@ export default function RosterPage() {
                         }
                         className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
                       />
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Link
+                        href={`/student/edit/${student.student_code}`}
+                        className="text-xs text-purple-700 hover:text-purple-900 font-semibold underline px-2 py-1 bg-purple-50 hover:bg-purple-100 rounded"
+                      >
+                        編輯
+                      </Link>
                     </td>
                   </tr>
                 ))

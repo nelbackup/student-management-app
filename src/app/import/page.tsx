@@ -66,15 +66,23 @@ export default function ImportStudentPage() {
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
         <div className="flex items-center justify-between pb-6 border-b mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">學員匯入登記</h1>
-            <p className="text-sm text-gray-500 mt-1">手動新增或批次登記至指定堂別</p>
+            <h1 className="text-2xl font-bold text-gray-800">學員單筆登記</h1>
+            <p className="text-sm text-gray-500 mt-1">手動新增個別學員至指定堂別</p>
           </div>
-          <Link
-            href="/roster"
-            className="px-4 py-2 text-sm font-medium text-white bg-purple-700 hover:bg-purple-800 rounded-lg shadow-sm transition"
-          >
-            返回點名名冊
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/import/excel"
+              className="px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition"
+            >
+              Excel 批次遷移
+            </Link>
+            <Link
+              href="/roster"
+              className="px-4 py-2 text-sm font-medium text-white bg-purple-700 hover:bg-purple-800 rounded-lg shadow-sm transition"
+            >
+              返回點名名冊
+            </Link>
+          </div>
         </div>
 
         {statusMessage && (
@@ -100,7 +108,7 @@ export default function ImportStudentPage() {
                 value={form.chinese_name}
                 onChange={handleChange}
                 placeholder="例如：周小龍"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
               />
             </div>
             <div>
@@ -112,7 +120,7 @@ export default function ImportStudentPage() {
                 value={form.english_name}
                 onChange={handleChange}
                 placeholder="例如：Bruce"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
               />
             </div>
           </div>
@@ -124,7 +132,7 @@ export default function ImportStudentPage() {
                 name="gender"
                 value={form.gender}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
               >
                 <option value="男">男</option>
                 <option value="女">女</option>
@@ -139,7 +147,7 @@ export default function ImportStudentPage() {
                 value={form.phone}
                 onChange={handleChange}
                 placeholder="例如：98765432"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
               />
             </div>
           </div>
@@ -152,22 +160,22 @@ export default function ImportStudentPage() {
               value={form.school}
               onChange={handleChange}
               placeholder="例如：拔萃小學"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">分配班別代碼 *</label>
-              <select
+              <input
+                required
+                type="text"
                 name="class_code"
                 value={form.class_code}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
-              >
-                <option value="C2026-A">C2026-A (15:00 - 16:00)</option>
-                <option value="C2026-B">C2026-B (16:15 - 17:15)</option>
-              </select>
+                placeholder="例如：C2026-A"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm font-mono"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">付款狀態 *</label>
@@ -175,7 +183,7 @@ export default function ImportStudentPage() {
                 name="payment_status"
                 value={form.payment_status}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
               >
                 <option value="no">未付款 (no)</option>
                 <option value="yes">已付款 (yes)</option>
@@ -191,7 +199,7 @@ export default function ImportStudentPage() {
               value={form.receipt_url}
               onChange={handleChange}
               placeholder="https://..."
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
             />
           </div>
 
