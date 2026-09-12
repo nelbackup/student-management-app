@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
 
@@ -143,7 +144,7 @@ export default function StudentManagementPage() {
   }, [students, sortField, sortAsc]);
 
   const renderSortIndicator = (field: StudentSortField) => {
-    if (sortField !== field) return <span className="ml-1 text-purple-300 opacity-60">↕</span>;
+    if (sortField !== field) return <span className="ml-1 text-sky-200 opacity-60">↕</span>;
     return <span className="ml-1 text-amber-300 font-bold">{sortAsc ? '▲' : '▼'}</span>;
   };
 
@@ -395,24 +396,44 @@ export default function StudentManagementPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900">學員管理中心</h1>
-            <p className="text-sm text-gray-500 mt-1">學員名冊瀏覽、個別登記報讀與試算表批次匯入</p>
+        {/* Brand Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
+          <div className="flex items-center gap-4">
+            <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
+              <Image
+                src="/logo.png"
+                alt="Luminous Minds Miss Ann Logo"
+                fill
+                className="object-contain rounded-full"
+                priority
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-wider font-extrabold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  Luminous Minds
+                </span>
+                <span className="text-xs font-bold text-slate-500">Miss Ann</span>
+              </div>
+              <h1 className="text-2xl font-black text-sky-950 mt-0.5">學員管理中心</h1>
+              <p className="text-xs text-slate-500">學員名冊瀏覽、個別登記報讀與試算表批次匯入</p>
+            </div>
           </div>
+
           <div className="flex items-center gap-3">
             <Link
               href="/roster"
-              className="px-4 py-2 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition"
+              className="px-4 py-2 text-sm font-semibold text-sky-900 bg-white hover:bg-sky-50 rounded-xl border border-sky-200 shadow-sm transition"
             >
               返回點名名冊
             </Link>
           </div>
         </div>
 
-        <div className="flex border-b border-gray-200 bg-white p-1 rounded-2xl shadow-sm">
+        {/* 頁籤切換 */}
+        <div className="flex border-b border-slate-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
             onClick={() => {
               setActiveTab('listing');
@@ -420,8 +441,8 @@ export default function StudentManagementPage() {
             }}
             className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
               activeTab === 'listing'
-                ? 'bg-purple-700 text-white shadow'
-                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
+                ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400'
+                : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
             }`}
           >
             📋 學員名冊列表
@@ -433,8 +454,8 @@ export default function StudentManagementPage() {
             }}
             className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
               activeTab === 'enrolment'
-                ? 'bg-purple-700 text-white shadow'
-                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
+                ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400'
+                : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
             }`}
           >
             ✍️ 新學員登記報讀
@@ -454,15 +475,15 @@ export default function StudentManagementPage() {
           </div>
         )}
 
-        {/* 頁籤 1: 學員名冊列表 (含欄位排序) */}
+        {/* 頁籤 1: 學員名冊列表 */}
         {activeTab === 'listing' && (
-          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-purple-700 text-white select-none">
+          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-sky-950 text-white select-none">
                 <tr>
                   <th
                     onClick={() => handleSort('name')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>學生名字</span>
@@ -471,7 +492,7 @@ export default function StudentManagementPage() {
                   </th>
                   <th
                     onClick={() => handleSort('gender')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>性別</span>
@@ -480,7 +501,7 @@ export default function StudentManagementPage() {
                   </th>
                   <th
                     onClick={() => handleSort('school')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>就讀學校</span>
@@ -489,7 +510,7 @@ export default function StudentManagementPage() {
                   </th>
                   <th
                     onClick={() => handleSort('payment')}
-                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center justify-center">
                       <span>付款情況</span>
@@ -498,7 +519,7 @@ export default function StudentManagementPage() {
                   </th>
                   <th
                     onClick={() => handleSort('receipt')}
-                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center justify-center">
                       <span>收據檢視</span>
@@ -507,7 +528,7 @@ export default function StudentManagementPage() {
                   </th>
                   <th
                     onClick={() => handleSort('phone')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>聯絡電話</span>
@@ -516,31 +537,31 @@ export default function StudentManagementPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-200">
                 {sortedStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-gray-400">
+                    <td colSpan={6} className="py-12 text-center text-slate-400">
                       暫無學員登記記錄。
                     </td>
                   </tr>
                 ) : (
                   sortedStudents.map((st) => (
-                    <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
+                    <tr key={st.student_code} className="hover:bg-sky-50/40 transition">
                       <td className="px-4 py-3">
                         <Link
                           href={`/student/edit/${st.student_code}`}
                           className="group flex flex-col hover:opacity-80"
                         >
-                          <span className="font-bold text-purple-800 underline decoration-purple-300 group-hover:text-purple-950">
+                          <span className="font-bold text-sky-950 underline decoration-sky-300 group-hover:text-amber-600">
                             {st.chinese_name}
                           </span>
                           {st.english_name && (
-                            <span className="text-xs text-gray-400">{st.english_name}</span>
+                            <span className="text-xs text-slate-400">{st.english_name}</span>
                           )}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{st.gender}</td>
-                      <td className="px-4 py-3 text-gray-600">{st.school || '-'}</td>
+                      <td className="px-4 py-3 text-slate-600">{st.gender}</td>
+                      <td className="px-4 py-3 text-slate-600">{st.school || '-'}</td>
                       <td className="px-4 py-3 text-center">
                         <span
                           className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
@@ -558,12 +579,12 @@ export default function StudentManagementPage() {
                             href={st.receipt_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-purple-600 hover:text-purple-900 font-semibold underline text-xs"
+                            className="text-sky-700 hover:text-sky-900 font-semibold underline text-xs"
                           >
                             檢視收據
                           </a>
                         ) : (
-                          <span className="text-gray-400 text-xs">無</span>
+                          <span className="text-slate-400 text-xs">無</span>
                         )}
                       </td>
                       <td className="px-4 py-3 font-mono">
@@ -587,13 +608,13 @@ export default function StudentManagementPage() {
         {/* 頁籤 2: 新學員登記報讀 */}
         {activeTab === 'enrolment' && (
           <div className="max-w-3xl mx-auto space-y-6">
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900 mb-6 pb-3 border-b">新學員手動登記表</h2>
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+              <h2 className="text-xl font-bold text-sky-950 mb-6 pb-3 border-b">新學員手動登記表</h2>
 
               <form onSubmit={handleManualSubmit} className="space-y-5" noValidate>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
                       中文姓名 <span className="text-rose-600">*</span>
                     </label>
                     <input
@@ -605,7 +626,7 @@ export default function StudentManagementPage() {
                       }}
                       placeholder="例如：陳大文"
                       className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                        formErrors.chinese_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                        formErrors.chinese_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                       }`}
                     />
                     {formErrors.chinese_name && (
@@ -614,7 +635,7 @@ export default function StudentManagementPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">英文姓名</label>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">英文姓名</label>
                     <input
                       type="text"
                       value={formData.english_name}
@@ -624,7 +645,7 @@ export default function StudentManagementPage() {
                       }}
                       placeholder="例如：David Chan"
                       className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                        formErrors.english_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                        formErrors.english_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                       }`}
                     />
                     {formErrors.english_name && (
@@ -635,11 +656,11 @@ export default function StudentManagementPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">性別</label>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">性別</label>
                     <select
                       value={formData.gender}
                       onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     >
                       <option value="男">男</option>
                       <option value="女">女</option>
@@ -647,7 +668,7 @@ export default function StudentManagementPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
                       聯絡電話 (香港 8 位號碼) <span className="text-rose-600">*</span>
                     </label>
                     <input
@@ -660,7 +681,7 @@ export default function StudentManagementPage() {
                       }}
                       placeholder="例如：91234567"
                       className={`w-full px-3 py-2 border rounded-xl text-sm font-mono focus:outline-none transition ${
-                        formErrors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                        formErrors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                       }`}
                     />
                     {formErrors.phone && (
@@ -670,19 +691,19 @@ export default function StudentManagementPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">就讀學校</label>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">就讀學校</label>
                   <input
                     type="text"
                     value={formData.school}
                     onChange={(e) => setFormData({ ...formData, school: e.target.value })}
                     placeholder="例如：拔萃男書院"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
                       所屬班別 <span className="text-rose-600">*</span>
                     </label>
                     <select
@@ -692,7 +713,7 @@ export default function StudentManagementPage() {
                         if (formErrors.class_code) setFormErrors({ ...formErrors, class_code: '' });
                       }}
                       className={`w-full px-3 py-2 border rounded-xl text-sm bg-white font-mono focus:outline-none transition ${
-                        formErrors.class_code ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                        formErrors.class_code ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                       }`}
                     >
                       <option value="">請選擇班別代碼</option>
@@ -708,11 +729,11 @@ export default function StudentManagementPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">繳費情況</label>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">繳費情況</label>
                     <select
                       value={formData.payment_status}
                       onChange={(e) => setFormData({ ...formData, payment_status: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm bg-white focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     >
                       <option value="no">未付款</option>
                       <option value="yes">已付款</option>
@@ -721,7 +742,7 @@ export default function StudentManagementPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">收據連結</label>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">收據連結</label>
                   <input
                     type="url"
                     value={formData.receipt_url}
@@ -731,7 +752,7 @@ export default function StudentManagementPage() {
                     }}
                     placeholder="https://example.com/receipt.jpg"
                     className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                      formErrors.receipt_url ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                      formErrors.receipt_url ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                     }`}
                   />
                   {formErrors.receipt_url && (
@@ -743,16 +764,16 @@ export default function StudentManagementPage() {
                   <button
                     type="submit"
                     disabled={savingManual}
-                    className="w-full py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
+                    className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
                   >
                     {savingManual ? '正在登記...' : '確認新增學員'}
                   </button>
 
-                  <div className="pt-2 border-t border-gray-100 text-center">
+                  <div className="pt-2 border-t border-slate-100 text-center">
                     <button
                       type="button"
                       onClick={() => setShowExcelSection(!showExcelSection)}
-                      className="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-2"
+                      className="w-full py-2.5 bg-amber-50/80 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-2"
                     >
                       <span>📥</span>
                       <span>
@@ -768,28 +789,28 @@ export default function StudentManagementPage() {
 
             {/* 展開式試算表批次匯入 */}
             {showExcelSection && (
-              <div className="bg-white p-8 rounded-2xl shadow-sm border border-emerald-200 space-y-5 animate-in fade-in duration-200">
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-amber-200 space-y-5">
                 <div className="border-b pb-3">
-                  <h3 className="text-lg font-bold text-emerald-900">試算表批次遷移匯入</h3>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <h3 className="text-lg font-bold text-sky-950">試算表批次遷移匯入</h3>
+                  <p className="text-xs text-slate-500 mt-1">
                     支援欄位：學生編號 (選填), 中文姓名, 英文姓名, 就讀學校, 性別, 聯絡電話, 班別代碼, 付款情況
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-2">選擇試算表檔案</label>
+                  <label className="block text-xs font-bold text-slate-800 mb-2">選擇試算表檔案</label>
                   <input
                     type="file"
                     accept=".xlsx, .xls, .csv"
                     onChange={handleExcelUpload}
-                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-900 hover:file:bg-sky-100 cursor-pointer"
                   />
                 </div>
 
                 {excelRows.length > 0 && (
                   <div className="space-y-4 pt-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-bold text-gray-800">
+                      <span className="text-sm font-bold text-slate-800">
                         檔案預覽：{excelFileName} (共 {excelRows.length} 筆資料)
                       </span>
                       {excelRows.some((r) => r.validationError) && (
@@ -799,9 +820,9 @@ export default function StudentManagementPage() {
                       )}
                     </div>
 
-                    <div className="overflow-x-auto max-h-80 border border-gray-200 rounded-xl">
-                      <table className="min-w-full divide-y divide-gray-200 text-xs text-left">
-                        <thead className="bg-gray-100 text-gray-700 sticky top-0 font-bold">
+                    <div className="overflow-x-auto max-h-80 border border-slate-200 rounded-xl">
+                      <table className="min-w-full divide-y divide-slate-200 text-xs text-left">
+                        <thead className="bg-slate-100 text-slate-700 sticky top-0 font-bold">
                           <tr>
                             <th className="p-2.5">列號</th>
                             <th className="p-2.5">學員編號</th>
@@ -814,24 +835,24 @@ export default function StudentManagementPage() {
                             <th className="p-2.5">驗證狀態</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200">
+                        <tbody className="divide-y divide-slate-200">
                           {excelRows.map((r, i) => (
-                            <tr key={i} className={r.validationError ? 'bg-rose-50/70' : 'hover:bg-gray-50'}>
-                              <td className="p-2.5 font-mono text-gray-400">#{r.rowNum}</td>
-                              <td className="p-2.5 font-mono text-gray-600">{r.student_code || '(自動遞增)'}</td>
-                              <td className="p-2.5 font-bold text-gray-900">
+                            <tr key={i} className={r.validationError ? 'bg-rose-50/70' : 'hover:bg-slate-50'}>
+                              <td className="p-2.5 font-mono text-slate-400">#{r.rowNum}</td>
+                              <td className="p-2.5 font-mono text-slate-600">{r.student_code || '(自動遞增)'}</td>
+                              <td className="p-2.5 font-bold text-slate-900">
                                 {r.chinese_name} {r.english_name ? `(${r.english_name})` : ''}
                               </td>
                               <td className="p-2.5">{r.gender}</td>
                               <td className="p-2.5">{r.school || '-'}</td>
                               <td className="p-2.5 font-mono">{r.phone}</td>
-                              <td className="p-2.5 font-mono font-bold text-purple-700">{r.class_code}</td>
+                              <td className="p-2.5 font-mono font-bold text-sky-800">{r.class_code}</td>
                               <td className="p-2.5">
                                 <span
                                   className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
                                     r.payment_status === 'yes'
                                       ? 'bg-emerald-100 text-emerald-800'
-                                      : 'bg-gray-100 text-gray-600'
+                                      : 'bg-slate-100 text-slate-600'
                                   }`}
                                 >
                                   {r.payment_status === 'yes' ? '已付款' : '未付款'}
@@ -854,7 +875,7 @@ export default function StudentManagementPage() {
                       type="button"
                       disabled={savingExcel}
                       onClick={handleConfirmBatchMigrate}
-                      className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
+                      className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
                     >
                       {savingExcel ? '正在寫入資料庫...' : '確認批次寫入資料庫'}
                     </button>

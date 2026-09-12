@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -61,7 +62,6 @@ export default function EditStudentPage() {
       setGeneralError(null);
 
       try {
-        // 1. Fetch available classes
         const { data: classList, error: classErr } = await supabase
           .from('classes')
           .select('class_code, class_name, lesson_date, duration, status')
@@ -70,7 +70,6 @@ export default function EditStudentPage() {
         if (classErr) throw classErr;
         setAvailableClasses(classList || []);
 
-        // 2. Fetch student details
         const { data: student, error: studentErr } = await supabase
           .from('students')
           .select('*')
@@ -107,11 +106,11 @@ export default function EditStudentPage() {
       const parts = (durationStr || '').split('-');
       const endTimeStr = (parts[1] || parts[0] || '23:59').trim();
       const [endHour, endMin] = endTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
-      const classEnd = new Date(lessonDate);
+      const classEnd = new Date(lessonDate.split(',')[0].trim());
       classEnd.setHours(endHour, endMin, 0, 0);
       return new Date() > classEnd;
     } catch {
-      return new Date(lessonDate) < new Date();
+      return new Date(lessonDate.split(',')[0].trim()) < new Date();
     }
   };
 
@@ -205,28 +204,47 @@ export default function EditStudentPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500">
-        <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-500">
+        <div className="w-8 h-8 border-4 border-sky-800 border-t-transparent rounded-full animate-spin mb-3"></div>
         <span>正在載入學員資料與排堂清單...</span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-        {/* 表頭與學員編號 */}
-        <div className="pb-5 mb-6 border-b border-gray-100">
-          <h1 className="text-2xl font-black text-gray-900">修改學員資料</h1>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">學員編號</span>
-            <span className="text-base font-mono font-bold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200">
+    <div className="min-h-screen bg-slate-50 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+        {/* Brand Header */}
+        <div className="flex items-center justify-between pb-5 mb-6 border-b border-slate-100">
+          <div className="flex items-center gap-3.5">
+            <div className="relative w-12 h-12 flex-shrink-0 bg-white rounded-full shadow border border-amber-300 p-0.5">
+              <Image
+                src="/logo.png"
+                alt="Luminous Minds Miss Ann Logo"
+                fill
+                className="object-contain rounded-full"
+                priority
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] uppercase tracking-wider font-extrabold text-amber-600">
+                  Luminous Minds
+                </span>
+                <span className="text-[11px] font-bold text-slate-400">Miss Ann</span>
+              </div>
+              <h1 className="text-xl font-black text-sky-950">修改學員資料</h1>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">學員編號</span>
+            <span className="text-sm font-mono font-bold text-sky-900 bg-sky-50 px-2.5 py-0.5 rounded-md border border-sky-200">
               {studentCode}
             </span>
           </div>
         </div>
 
-        {/* 頂部錯誤摘要橫幅 */}
         {generalError && (
           <div className="p-4 mb-6 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium flex items-start gap-2">
             <span>⚠️</span>
@@ -237,14 +255,14 @@ export default function EditStudentPage() {
         <form onSubmit={handleSubmit} className="space-y-8" noValidate>
           {/* 第一部分：學生個人資料 */}
           <section className="space-y-4">
-            <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-              <div className="w-2 h-4 bg-purple-700 rounded-full"></div>
-              <h2 className="text-base font-bold text-gray-900">第一部分：學生個人資料</h2>
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+              <div className="w-2 h-4 bg-sky-900 rounded-full"></div>
+              <h2 className="text-base font-bold text-sky-950">第一部分：學生個人資料</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">
+                <label className="block text-sm font-bold text-slate-800 mb-1">
                   中文姓名 <span className="text-rose-600">*</span>
                 </label>
                 <input
@@ -254,7 +272,7 @@ export default function EditStudentPage() {
                   onChange={handleChange}
                   placeholder="例如：黃子健"
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.chinese_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.chinese_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                   }`}
                 />
                 {errors.chinese_name && (
@@ -263,7 +281,7 @@ export default function EditStudentPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">英文姓名</label>
+                <label className="block text-sm font-bold text-slate-800 mb-1">英文姓名</label>
                 <input
                   type="text"
                   name="english_name"
@@ -271,7 +289,7 @@ export default function EditStudentPage() {
                   onChange={handleChange}
                   placeholder="例如：Lucas"
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.english_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.english_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                   }`}
                 />
                 {errors.english_name && (
@@ -282,12 +300,12 @@ export default function EditStudentPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">性別</label>
+                <label className="block text-sm font-bold text-slate-800 mb-1">性別</label>
                 <select
                   name="gender"
                   value={form.gender}
                   onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-700"
                 >
                   <option value="男">男</option>
                   <option value="女">女</option>
@@ -295,7 +313,7 @@ export default function EditStudentPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">
+                <label className="block text-sm font-bold text-slate-800 mb-1">
                   聯絡電話 (香港手機) <span className="text-rose-600">*</span>
                 </label>
                 <input
@@ -306,7 +324,7 @@ export default function EditStudentPage() {
                   placeholder="例如：98765432"
                   maxLength={8}
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                   }`}
                 />
                 {errors.phone && (
@@ -316,33 +334,33 @@ export default function EditStudentPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">就讀學校</label>
+              <label className="block text-sm font-bold text-slate-800 mb-1">就讀學校</label>
               <input
                 type="text"
                 name="school"
                 value={form.school}
                 onChange={handleChange}
                 placeholder="例如：喇沙小學"
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-700"
               />
             </div>
           </section>
 
           {/* 第二部分：繳費及收據記錄 */}
           <section className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
               <div className="w-2 h-4 bg-emerald-600 rounded-full"></div>
-              <h2 className="text-base font-bold text-gray-900">第二部分：繳費及收據記錄</h2>
+              <h2 className="text-base font-bold text-sky-950">第二部分：繳費及收據記錄</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">繳費情況</label>
+                <label className="block text-sm font-bold text-slate-800 mb-1">繳費情況</label>
                 <select
                   name="payment_status"
                   value={form.payment_status}
                   onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600 font-medium"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-700 font-medium"
                 >
                   <option value="no">未付款</option>
                   <option value="yes">已付款</option>
@@ -351,13 +369,13 @@ export default function EditStudentPage() {
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-sm font-bold text-gray-800">收據連結</label>
+                  <label className="block text-sm font-bold text-slate-800">收據連結</label>
                   {form.receipt_url && (
                     <a
                       href={form.receipt_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs text-purple-600 underline font-semibold hover:text-purple-800"
+                      className="text-xs text-sky-700 underline font-semibold hover:text-sky-950"
                     >
                       開啟預覽
                     </a>
@@ -370,7 +388,7 @@ export default function EditStudentPage() {
                   onChange={handleChange}
                   placeholder="https://example.com/receipt.jpg"
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.receipt_url ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.receipt_url ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                   }`}
                 />
                 {errors.receipt_url && (
@@ -380,33 +398,31 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* 第三部分：課堂報讀與出席紀錄 (僅顯示該學員已登記之班別) */}
+          {/* 第三部分：所屬報讀課堂與出席紀錄 */}
           <section className="space-y-4 pt-2">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <div className="w-2 h-4 bg-indigo-600 rounded-full"></div>
-                <h2 className="text-base font-bold text-gray-900">第三部分：所屬報讀課堂與出席紀錄</h2>
+                <div className="w-2 h-4 bg-sky-900 rounded-full"></div>
+                <h2 className="text-base font-bold text-sky-950">第三部分：所屬報讀課堂與出席紀錄</h2>
               </div>
-              <span className="text-xs text-gray-400">學員登記堂別</span>
+              <span className="text-xs text-slate-400">學員登記堂別</span>
             </div>
 
-            {/* 狀態說明標籤 */}
-            <div className="flex flex-wrap gap-4 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
+            <div className="flex flex-wrap gap-4 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">綠色：有效堂別（點擊前往調整分班）</span>
+                <span className="text-slate-700 font-medium">綠色：有效堂別（點擊前往調整分班）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-rose-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">紅色：已過期缺席（停用）</span>
+                <span className="text-slate-700 font-medium">紅色：已過期缺席（停用）</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-gray-400 inline-block"></span>
-                <span className="text-gray-700 font-medium">灰色：已過期出席 / 封存（停用）</span>
+                <span className="w-3 h-3 rounded-full bg-slate-400 inline-block"></span>
+                <span className="text-slate-700 font-medium">灰色：已過期出席 / 封存（停用）</span>
               </div>
             </div>
 
-            {/* 僅篩選並顯示該學員所登記之課堂 */}
             {(() => {
               const enrolledClass = availableClasses.find((c) => c.class_code === form.class_code);
 
@@ -419,7 +435,7 @@ export default function EditStudentPage() {
                     <button
                       type="button"
                       onClick={() => router.push(`/classes?student=${encodeURIComponent(studentCode)}`)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-xl shadow transition cursor-pointer"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 text-white text-xs font-bold rounded-xl shadow transition cursor-pointer"
                     >
                       <span>👉</span> 前往分班指派中心為此學員分班
                     </button>
@@ -434,12 +450,12 @@ export default function EditStudentPage() {
 
               if (expired || isSuspended) {
                 if (!form.attendance_status) {
-                  buttonState = 'inactive-absent'; // 過期未出席 -> 紅色
+                  buttonState = 'inactive-absent';
                 } else {
-                  buttonState = 'inactive-grey';   // 過期已出席 -> 灰色
+                  buttonState = 'inactive-grey';
                 }
               } else {
-                buttonState = 'active';           // 未來有效堂別 -> 綠色
+                buttonState = 'active';
               }
 
               return (
@@ -457,7 +473,7 @@ export default function EditStudentPage() {
                         ? 'bg-emerald-600 border-emerald-700 text-white shadow-md ring-2 ring-emerald-400 cursor-pointer hover:bg-emerald-700'
                         : buttonState === 'inactive-absent'
                         ? 'bg-rose-50 border-rose-300 text-rose-900 cursor-not-allowed'
-                        : 'bg-gray-100 border-gray-200 text-gray-500 opacity-80 cursor-not-allowed'
+                        : 'bg-slate-100 border-slate-200 text-slate-500 opacity-80 cursor-not-allowed'
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -467,7 +483,7 @@ export default function EditStudentPage() {
                             ? 'bg-white/20 text-white'
                             : buttonState === 'inactive-absent'
                             ? 'bg-rose-200 text-rose-900'
-                            : 'bg-gray-200 text-gray-700'
+                            : 'bg-slate-200 text-slate-700'
                         }`}
                       >
                         {enrolledClass.class_code}
@@ -478,7 +494,7 @@ export default function EditStudentPage() {
                         </span>
                         <div
                           className={`text-xs font-mono mt-0.5 ${
-                            buttonState === 'active' ? 'text-white/90' : 'text-gray-500'
+                            buttonState === 'active' ? 'text-white/90' : 'text-slate-500'
                           }`}
                         >
                           📅 {enrolledClass.lesson_date} | ⏰ {enrolledClass.duration}
@@ -493,7 +509,7 @@ export default function EditStudentPage() {
                             ? 'bg-white text-emerald-800 shadow-sm'
                             : buttonState === 'inactive-absent'
                             ? 'bg-rose-200 text-rose-900'
-                            : 'bg-gray-200 text-gray-700'
+                            : 'bg-slate-200 text-slate-700'
                         }`}
                       >
                         已登記所屬堂別
@@ -505,7 +521,7 @@ export default function EditStudentPage() {
                             ? 'bg-emerald-700 text-white border border-emerald-400/60'
                             : buttonState === 'inactive-absent'
                             ? 'bg-rose-100 text-rose-700 border border-rose-300'
-                            : 'bg-gray-200 text-gray-600'
+                            : 'bg-slate-200 text-slate-600'
                         }`}
                       >
                         {buttonState === 'active'
@@ -521,19 +537,19 @@ export default function EditStudentPage() {
             })()}
           </section>
 
-          {/* 儲存變更與取消返回按鈕 */}
-          <div className="space-y-3 pt-4 border-t border-gray-100">
+          {/* 操作按鈕 */}
+          <div className="space-y-3 pt-4 border-t border-slate-100">
             <button
               type="submit"
               disabled={saving}
-              className="w-full py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
+              className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
             >
               {saving ? '正在儲存變更...' : '儲存變更'}
             </button>
 
             <Link
               href="/roster"
-              className="block w-full py-2.5 text-center text-sm font-semibold text-gray-600 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 transition"
+              className="block w-full py-2.5 text-center text-sm font-semibold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition"
             >
               取消返回
             </Link>

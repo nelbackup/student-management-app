@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import AnalogClockPicker from '@/components/AnalogClockPicker';
@@ -68,15 +69,13 @@ function ClassesAdminContent() {
   const [students, setStudents] = useState<StudentFull[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Sorting state for Admin Classes Table
+  // Sorting state
   const [classSortField, setClassSortField] = useState<ClassSortField>('lesson_date');
   const [classSortAsc, setClassSortAsc] = useState<boolean>(true);
 
-  // Sorting state for Available Classes (Assignment Tab)
   const [assignClassSortField, setAssignClassSortField] = useState<ClassSortField>('lesson_date');
   const [assignClassSortAsc, setAssignClassSortAsc] = useState<boolean>(true);
 
-  // Sorting state for Remaining Students Table
   const [studentSortField, setStudentSortField] = useState<StudentSortField>('name');
   const [studentSortAsc, setStudentSortAsc] = useState<boolean>(true);
 
@@ -111,6 +110,22 @@ function ClassesAdminContent() {
       start: parts[0] || '15:00',
       end: parts[1] || '16:00',
     };
+  };
+
+  const isClassPast = (lessonDate: string, durationStr: string): boolean => {
+    try {
+      const parts = (durationStr || '').split('-');
+      const endTimeStr = (parts[1] || parts[0] || '23:59').trim();
+      const [endHour, endMin] = endTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
+
+      const primaryDate = lessonDate.split(',')[0].trim();
+      const classEnd = new Date(primaryDate);
+      classEnd.setHours(endHour, endMin, 0, 0);
+
+      return new Date() > classEnd;
+    } catch {
+      return new Date(lessonDate) < new Date();
+    }
   };
 
   const loadData = async () => {
@@ -195,7 +210,6 @@ function ClassesAdminContent() {
     return students.find((s) => s.student_code === preselectedStudent) || null;
   }, [students, preselectedStudent]);
 
-  // Sort function for Classes
   const sortClassList = (list: ClassRecord[], field: ClassSortField, asc: boolean) => {
     return [...list].sort((a, b) => {
       let res = 0;
@@ -231,15 +245,22 @@ function ClassesAdminContent() {
   }, [classList, classSortField, classSortAsc]);
 
   const sortedAvailableClasses = useMemo(() => {
-    const available = classList.filter(
-      (cls) => cls.status !== 'suspended' && (cls.enrolled_count || 0) < cls.max_capacity
-    );
+    const available = classList.filter((cls) => {
+      const isPast = isClassPast(cls.lesson_date, cls.duration);
+      const isActive = cls.status !== 'suspended';
+      const hasQuota = (cls.enrolled_count || 0) < cls.max_capacity;
+      return !isPast && isActive && hasQuota;
+    });
     return sortClassList(available, assignClassSortField, assignClassSortAsc);
   }, [classList, assignClassSortField, assignClassSortAsc]);
 
-  const sortedRemainingStudents = useMemo(() => {
-    const remaining = students.filter((s) => s.student_code !== preselectedStudent);
-    return remaining.sort((a, b) => {
+  const registeredStudentsOfSelectedClass = useMemo(() => {
+    if (!selectedClassForAssign) return [];
+    const list = students.filter(
+      (s) => s.class_code === selectedClassForAssign && s.student_code !== preselectedStudent
+    );
+
+    return list.sort((a, b) => {
       let res = 0;
       switch (studentSortField) {
         case 'name': {
@@ -266,7 +287,7 @@ function ClassesAdminContent() {
       }
       return studentSortAsc ? res : -res;
     });
-  }, [students, preselectedStudent, studentSortField, studentSortAsc]);
+  }, [students, selectedClassForAssign, preselectedStudent, studentSortField, studentSortAsc]);
 
   const targetClassData = useMemo(() => {
     return classList.find((c) => c.class_code === selectedClassForAssign);
@@ -285,7 +306,7 @@ function ClassesAdminContent() {
   };
 
   const renderSortArrow = (current: string, active: string, asc: boolean) => {
-    if (current !== active) return <span className="ml-1 text-purple-300 opacity-60">↕</span>;
+    if (current !== active) return <span className="ml-1 text-sky-200 opacity-60">↕</span>;
     return <span className="ml-1 text-amber-300 font-bold">{asc ? '▲' : '▼'}</span>;
   };
 
@@ -551,24 +572,43 @@ function ClassesAdminContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900">課程與堂別中心</h1>
-            <p className="text-sm text-gray-500 mt-1">課程詳細管理與學員分班指派作業</p>
+        {/* Brand Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
+          <div className="flex items-center gap-4">
+            <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
+              <Image
+                src="/logo.png"
+                alt="Luminous Minds Miss Ann Logo"
+                fill
+                className="object-contain rounded-full"
+                priority
+              />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-wider font-extrabold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  Luminous Minds
+                </span>
+                <span className="text-xs font-bold text-slate-500">Miss Ann</span>
+              </div>
+              <h1 className="text-2xl font-black text-sky-950 mt-0.5">課程與堂別中心</h1>
+              <p className="text-xs text-slate-500">課程詳細排程管理與學員分班指派作業</p>
+            </div>
           </div>
+
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/roster"
-              className="px-4 py-2 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition"
+              className="px-4 py-2 text-sm font-semibold text-sky-900 bg-white hover:bg-sky-50 rounded-xl border border-sky-200 shadow-sm transition"
             >
               返回點名名冊
             </Link>
             {viewTab === 'admin' && (
               <button
                 onClick={handleOpenCreate}
-                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer"
+                className="px-4 py-2 bg-sky-950 hover:bg-sky-900 text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer border-b-2 border-amber-400"
               >
                 + 新增課程
               </button>
@@ -576,7 +616,8 @@ function ClassesAdminContent() {
           </div>
         </div>
 
-        <div className="flex border-b border-gray-200 bg-white p-1 rounded-2xl shadow-sm">
+        {/* 頁籤選單 */}
+        <div className="flex border-b border-slate-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
             onClick={() => {
               setViewTab('admin');
@@ -584,8 +625,8 @@ function ClassesAdminContent() {
             }}
             className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
               viewTab === 'admin'
-                ? 'bg-purple-700 text-white shadow'
-                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
+                ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400'
+                : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
             }`}
           >
             📋 課程詳細清單
@@ -602,21 +643,22 @@ function ClassesAdminContent() {
             title={!isAssignmentAllowed ? '請先至「修改學員資料」點選有效課堂按鈕進入分班指派' : ''}
             className={`flex-1 py-3 text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 ${
               !isAssignmentAllowed
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-dashed border-gray-300'
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-dashed border-slate-300'
                 : viewTab === 'assignment'
-                ? 'bg-purple-700 text-white shadow'
-                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50 cursor-pointer'
+                ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400'
+                : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50 cursor-pointer'
             }`}
           >
             <span>🎓 學員分班指派</span>
             {!isAssignmentAllowed && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">
                 需由學員修改頁進入
               </span>
             )}
           </button>
         </div>
 
+        {/* 反饋提示 */}
         {feedback && (
           <div
             className={`p-5 rounded-2xl border shadow-sm ${
@@ -637,25 +679,25 @@ function ClassesAdminContent() {
                   <div className="mt-4 p-3.5 bg-white/95 rounded-xl border border-emerald-200 text-xs space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       <div>
-                        <span className="text-gray-500 font-medium block">指派學員：</span>
-                        <span className="font-bold text-gray-900 text-sm">
+                        <span className="text-slate-500 font-medium block">指派學員：</span>
+                        <span className="font-bold text-slate-900 text-sm">
                           {feedback.details.studentName}
                         </span>
-                        <span className="font-mono text-purple-700 ml-1.5 font-bold">
+                        <span className="font-mono text-sky-800 ml-1.5 font-bold">
                           [{feedback.details.studentCode}]
                         </span>
                       </div>
                       <div>
-                        <span className="text-gray-500 font-medium block">所調班別異動：</span>
+                        <span className="text-slate-500 font-medium block">所調班別異動：</span>
                         <div className="font-bold">
-                          <span className="text-gray-500">{feedback.details.previousClass}</span>
+                          <span className="text-slate-500">{feedback.details.previousClass}</span>
                           <span className="mx-1 text-emerald-600">➔</span>
                           <span className="text-emerald-800">{feedback.details.targetClass}</span>
                         </div>
                       </div>
                       <div>
-                        <span className="text-gray-500 font-medium block">新課堂時段 / 剩餘學額：</span>
-                        <span className="font-mono font-bold text-gray-800">
+                        <span className="text-slate-500 font-medium block">新課堂時段 / 剩餘學額：</span>
+                        <span className="font-mono font-bold text-slate-800">
                           {feedback.details.lessonDate} ({feedback.details.duration})
                         </span>
                         <span className="ml-2 font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[11px]">
@@ -670,20 +712,18 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAB 1: 課程詳細清單 (含欄位排序)                                            */}
-        {/* ========================================================================= */}
+        {/* TAB 1: 課程詳細清單 */}
         {viewTab === 'admin' && (
-          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
-            <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
-              <thead className="bg-purple-700 text-white text-xs font-semibold uppercase select-none">
+          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
+            <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
+              <thead className="bg-sky-950 text-white text-xs font-semibold uppercase select-none">
                 <tr>
                   <th
                     onClick={() => {
                       if (classSortField === 'class_code') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('class_code'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>課程編號</span>
@@ -695,7 +735,7 @@ function ClassesAdminContent() {
                       if (classSortField === 'category') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('category'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>課程類別</span>
@@ -707,7 +747,7 @@ function ClassesAdminContent() {
                       if (classSortField === 'class_name') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('class_name'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>班別名稱</span>
@@ -719,7 +759,7 @@ function ClassesAdminContent() {
                       if (classSortField === 'lesson_date') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('lesson_date'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>上課日期</span>
@@ -731,7 +771,7 @@ function ClassesAdminContent() {
                       if (classSortField === 'duration') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('duration'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center">
                       <span>上課時間</span>
@@ -744,7 +784,7 @@ function ClassesAdminContent() {
                       if (classSortField === 'max_capacity') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('max_capacity'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 text-center cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center justify-center">
                       <span>學額上限</span>
@@ -756,7 +796,7 @@ function ClassesAdminContent() {
                       if (classSortField === 'enrolled_count') setClassSortAsc(!classSortAsc);
                       else { setClassSortField('enrolled_count'); setClassSortAsc(true); }
                     }}
-                    className="px-4 py-3 text-center cursor-pointer hover:bg-purple-800 transition"
+                    className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition"
                   >
                     <div className="flex items-center justify-center">
                       <span>已報名人數</span>
@@ -766,16 +806,16 @@ function ClassesAdminContent() {
                   <th className="px-4 py-3 text-center">操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-400">
+                    <td colSpan={9} className="py-12 text-center text-slate-400">
                       載入課程清單中...
                     </td>
                   </tr>
                 ) : sortedClassList.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-400">
+                    <td colSpan={9} className="py-12 text-center text-slate-400">
                       目前暫無任何課程。
                     </td>
                   </tr>
@@ -784,22 +824,22 @@ function ClassesAdminContent() {
                     const isFull = (cls.enrolled_count || 0) >= cls.max_capacity;
 
                     return (
-                      <tr key={cls.class_code} className="hover:bg-purple-50/40 transition">
-                        <td className="px-4 py-3 font-mono font-bold text-purple-800 whitespace-nowrap">
+                      <tr key={cls.class_code} className="hover:bg-sky-50/40 transition">
+                        <td className="px-4 py-3 font-mono font-bold text-sky-950 whitespace-nowrap">
                           {cls.class_code}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 whitespace-nowrap">
+                          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-50 text-sky-900 border border-sky-200 whitespace-nowrap">
                             {cls.category}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">{cls.class_name}</td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono">{cls.lesson_date}</td>
-                        <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{cls.duration}</td>
-                        <td className="px-4 py-3 text-xs text-gray-600 max-w-sm truncate" title={cls.description}>
+                        <td className="px-4 py-3 font-bold text-slate-900">{cls.class_name}</td>
+                        <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono">{cls.lesson_date}</td>
+                        <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">{cls.duration}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600 max-w-sm truncate" title={cls.description}>
                           {cls.description || '-'}
                         </td>
-                        <td className="px-4 py-3 text-center font-bold text-gray-700">
+                        <td className="px-4 py-3 text-center font-bold text-slate-700">
                           {cls.max_capacity} 人
                         </td>
                         <td className="px-4 py-3 text-center">
@@ -816,7 +856,7 @@ function ClassesAdminContent() {
                         <td className="px-4 py-3 text-center">
                           <button
                             onClick={() => handleOpenEdit(cls)}
-                            className="px-3 py-1 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition cursor-pointer"
+                            className="px-3 py-1 text-xs font-bold text-sky-900 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition cursor-pointer"
                           >
                             修改
                           </button>
@@ -830,25 +870,23 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAB 2: 學員分班指派 (含兩大表格獨立排序)                                     */}
-        {/* ========================================================================= */}
+        {/* TAB 2: 學員分班指派 */}
         {viewTab === 'assignment' && isAssignmentAllowed && (
           <div className="space-y-6">
-            <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl">
-              <h2 className="text-sm font-bold text-purple-900">分班指派作業說明</h2>
-              <p className="text-xs text-purple-700 mt-0.5">
+            <div className="bg-sky-50 border border-sky-200 p-4 rounded-2xl">
+              <h2 className="text-sm font-bold text-sky-950">分班指派作業說明</h2>
+              <p className="text-xs text-slate-600 mt-0.5">
                 步驟 1：確認下方目標學員資料 ➔ 步驟 2：於可選課程表格勾選目標課堂 ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
               </p>
             </div>
 
             {/* Selected Student Summary Card */}
             {currentTargetStudent && (
-              <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border-2 border-purple-300 rounded-2xl p-5 shadow-sm">
-                <div className="flex items-center justify-between pb-3 border-b border-purple-200/80 mb-3">
+              <div className="bg-gradient-to-r from-sky-50 via-slate-50 to-amber-50/40 border-2 border-amber-300 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">🎯</span>
-                    <h2 className="text-sm font-black text-purple-950">
+                    <span className="text-amber-500 text-lg">★</span>
+                    <h2 className="text-sm font-black text-sky-950">
                       當前所選學員資料 (Selected Student)
                     </h2>
                   </div>
@@ -858,35 +896,35 @@ function ClassesAdminContent() {
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-xs">
-                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                    <span className="text-gray-400 block mb-0.5 font-semibold">學生名字</span>
-                    <span className="font-black text-gray-900 text-sm block">
+                  <div className="bg-white p-2.5 rounded-xl border border-sky-100">
+                    <span className="text-slate-400 block mb-0.5 font-semibold">學生名字</span>
+                    <span className="font-black text-slate-900 text-sm block">
                       {currentTargetStudent.chinese_name}
                     </span>
                     {currentTargetStudent.english_name && (
-                      <span className="text-[11px] text-gray-500 block truncate">
+                      <span className="text-[11px] text-slate-500 block truncate">
                         {currentTargetStudent.english_name}
                       </span>
                     )}
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                    <span className="text-gray-400 block mb-0.5 font-semibold">學員編號</span>
-                    <span className="font-mono font-black text-purple-800 text-sm">
+                  <div className="bg-white p-2.5 rounded-xl border border-sky-100">
+                    <span className="text-slate-400 block mb-0.5 font-semibold">學員編號</span>
+                    <span className="font-mono font-black text-sky-900 text-sm">
                       {currentTargetStudent.student_code}
                     </span>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                    <span className="text-gray-400 block mb-0.5 font-semibold">性別 / 學校</span>
-                    <span className="font-bold text-gray-800 block">{currentTargetStudent.gender}</span>
-                    <span className="text-[11px] text-gray-500 block truncate" title={currentTargetStudent.school}>
+                  <div className="bg-white p-2.5 rounded-xl border border-sky-100">
+                    <span className="text-slate-400 block mb-0.5 font-semibold">性別 / 學校</span>
+                    <span className="font-bold text-slate-800 block">{currentTargetStudent.gender}</span>
+                    <span className="text-[11px] text-slate-500 block truncate" title={currentTargetStudent.school}>
                       {currentTargetStudent.school || '-'}
                     </span>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                    <span className="text-gray-400 block mb-0.5 font-semibold">繳費情況</span>
+                  <div className="bg-white p-2.5 rounded-xl border border-sky-100">
+                    <span className="text-slate-400 block mb-0.5 font-semibold">繳費情況</span>
                     <span
                       className={`inline-block mt-0.5 px-2 py-0.5 text-[11px] font-bold rounded-full ${
                         currentTargetStudent.payment_status === 'yes'
@@ -898,8 +936,8 @@ function ClassesAdminContent() {
                     </span>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                    <span className="text-gray-400 block mb-0.5 font-semibold">聯絡電話</span>
+                  <div className="bg-white p-2.5 rounded-xl border border-sky-100">
+                    <span className="text-slate-400 block mb-0.5 font-semibold">聯絡電話</span>
                     <a
                       href={getWhatsAppLink(currentTargetStudent.phone, currentTargetStudent.chinese_name)}
                       target="_blank"
@@ -910,9 +948,9 @@ function ClassesAdminContent() {
                     </a>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                    <span className="text-gray-400 block mb-0.5 font-semibold">現屬班別</span>
-                    <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 inline-block">
+                  <div className="bg-white p-2.5 rounded-xl border border-sky-100">
+                    <span className="text-slate-400 block mb-0.5 font-semibold">現屬班別</span>
+                    <span className="font-mono font-bold text-sky-900 bg-sky-50 px-2 py-0.5 rounded border border-sky-200 inline-block">
                       {currentTargetStudent.class_code || '未分班'}
                     </span>
                   </div>
@@ -920,10 +958,21 @@ function ClassesAdminContent() {
               </div>
             )}
 
-            {/* 可選班別清單 (含欄位排序) */}
-            <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
-              <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
-                <thead className="bg-purple-700 text-white text-xs font-semibold uppercase select-none">
+            {/* 可選有效課程表格 */}
+            <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
+              <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-sky-950">
+                    可供報讀與調配之有效班別
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    已自動過濾已截止過期課堂及已滿額班別（共 {sortedAvailableClasses.length} 個班別可選）
+                  </p>
+                </div>
+              </div>
+
+              <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
+                <thead className="bg-sky-950 text-white text-xs font-semibold uppercase select-none">
                   <tr>
                     <th className="px-4 py-3 text-center">指派目標</th>
                     <th
@@ -931,7 +980,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'class_code') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('class_code'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center">
                         <span>課程編號</span>
@@ -943,7 +992,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'category') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('category'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center">
                         <span>課程類別</span>
@@ -955,7 +1004,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'class_name') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('class_name'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center">
                         <span>班別名稱</span>
@@ -967,7 +1016,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'lesson_date') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('lesson_date'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center">
                         <span>上課日期</span>
@@ -979,7 +1028,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'duration') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('duration'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center">
                         <span>上課時間</span>
@@ -992,7 +1041,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'max_capacity') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('max_capacity'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 text-center cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center justify-center">
                         <span>學額上限</span>
@@ -1004,7 +1053,7 @@ function ClassesAdminContent() {
                         if (assignClassSortField === 'enrolled_count') setAssignClassSortAsc(!assignClassSortAsc);
                         else { setAssignClassSortField('enrolled_count'); setAssignClassSortAsc(true); }
                       }}
-                      className="px-4 py-3 text-center cursor-pointer hover:bg-purple-800 transition"
+                      className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition"
                     >
                       <div className="flex items-center justify-center">
                         <span>已報名人數</span>
@@ -1013,11 +1062,11 @@ function ClassesAdminContent() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-slate-200">
                   {sortedAvailableClasses.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-gray-400">
-                        暫無可供分配的空額課程。
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                        目前暫無任何有效開課或尚有空額的班別。
                       </td>
                     </tr>
                   ) : (
@@ -1030,7 +1079,7 @@ function ClassesAdminContent() {
                           key={cls.class_code}
                           onClick={() => setSelectedClassForAssign(cls.class_code)}
                           className={`cursor-pointer transition ${
-                            isSelected ? 'bg-purple-50 ring-1 ring-purple-500' : 'hover:bg-gray-50'
+                            isSelected ? 'bg-sky-50 ring-2 ring-sky-700' : 'hover:bg-slate-50'
                           }`}
                         >
                           <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1041,24 +1090,24 @@ function ClassesAdminContent() {
                               onChange={() =>
                                 setSelectedClassForAssign(isSelected ? null : cls.class_code)
                               }
-                              className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                              className="w-4 h-4 text-sky-800 rounded border-slate-300 focus:ring-sky-700 cursor-pointer"
                             />
                           </td>
-                          <td className="px-4 py-3 font-mono font-bold text-purple-800 whitespace-nowrap">
+                          <td className="px-4 py-3 font-mono font-bold text-sky-950 whitespace-nowrap">
                             {cls.class_code}
                           </td>
                           <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700 border">
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border">
                               {cls.category}
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-medium text-gray-900">{cls.class_name}</td>
-                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-mono">{cls.lesson_date}</td>
-                          <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{cls.duration}</td>
-                          <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate" title={cls.description}>
+                          <td className="px-4 py-3 font-medium text-slate-900">{cls.class_name}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono">{cls.lesson_date}</td>
+                          <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">{cls.duration}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate" title={cls.description}>
                             {cls.description || '-'}
                           </td>
-                          <td className="px-4 py-3 text-center font-bold text-gray-700">
+                          <td className="px-4 py-3 text-center font-bold text-slate-700">
                             {cls.max_capacity} 人
                           </td>
                           <td className="px-4 py-3 text-center">
@@ -1074,174 +1123,186 @@ function ClassesAdminContent() {
               </table>
             </div>
 
-            {/* 其餘現有名單學員 (含欄位排序) */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-                <div>
-                  <h3 className="text-base font-bold text-gray-900">其餘現有名單學員</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    展示系統內其他學員（共 {sortedRemainingStudents.length} 人，已排除當前上方所選學員）
-                  </p>
+            {/* 僅於有勾選目標班別時，才顯示該班別已登記學員名單 */}
+            {selectedClassForAssign ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-sky-50/50">
+                  <div>
+                    <h3 className="text-base font-bold text-sky-950">
+                      目標班別【{selectedClassForAssign}】已登記學員名單
+                    </h3>
+                    <p className="text-xs text-sky-800 mt-0.5">
+                      目前該班已有 {registeredStudentsOfSelectedClass.length} 位同班學員（已排除當前調配學員）
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold bg-sky-100 text-sky-900 px-3 py-1 rounded-full border border-sky-200">
+                    {targetClassData?.class_name}
+                  </span>
                 </div>
-              </div>
 
-              <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-purple-700 text-white text-xs font-semibold uppercase sticky top-0 z-10 select-none">
-                    <tr>
-                      <th
-                        onClick={() => {
-                          if (studentSortField === 'name') setStudentSortAsc(!studentSortAsc);
-                          else { setStudentSortField('name'); setStudentSortAsc(true); }
-                        }}
-                        className="px-4 py-3.5 text-left cursor-pointer hover:bg-purple-800 transition"
-                      >
-                        <div className="flex items-center">
-                          <span>學生名字</span>
-                          {renderSortArrow('name', studentSortField, studentSortAsc)}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => {
-                          if (studentSortField === 'gender') setStudentSortAsc(!studentSortAsc);
-                          else { setStudentSortField('gender'); setStudentSortAsc(true); }
-                        }}
-                        className="px-4 py-3.5 text-left cursor-pointer hover:bg-purple-800 transition"
-                      >
-                        <div className="flex items-center">
-                          <span>性別</span>
-                          {renderSortArrow('gender', studentSortField, studentSortAsc)}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => {
-                          if (studentSortField === 'school') setStudentSortAsc(!studentSortAsc);
-                          else { setStudentSortField('school'); setStudentSortAsc(true); }
-                        }}
-                        className="px-4 py-3.5 text-left cursor-pointer hover:bg-purple-800 transition"
-                      >
-                        <div className="flex items-center">
-                          <span>就讀學校</span>
-                          {renderSortArrow('school', studentSortField, studentSortAsc)}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => {
-                          if (studentSortField === 'payment') setStudentSortAsc(!studentSortAsc);
-                          else { setStudentSortField('payment'); setStudentSortAsc(true); }
-                        }}
-                        className="px-4 py-3.5 text-center cursor-pointer hover:bg-purple-800 transition"
-                      >
-                        <div className="flex items-center justify-center">
-                          <span>付款情況</span>
-                          {renderSortArrow('payment', studentSortField, studentSortAsc)}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => {
-                          if (studentSortField === 'receipt') setStudentSortAsc(!studentSortAsc);
-                          else { setStudentSortField('receipt'); setStudentSortAsc(true); }
-                        }}
-                        className="px-4 py-3.5 text-center cursor-pointer hover:bg-purple-800 transition"
-                      >
-                        <div className="flex items-center justify-center">
-                          <span>收據檢視</span>
-                          {renderSortArrow('receipt', studentSortField, studentSortAsc)}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => {
-                          if (studentSortField === 'phone') setStudentSortAsc(!studentSortAsc);
-                          else { setStudentSortField('phone'); setStudentSortAsc(true); }
-                        }}
-                        className="px-4 py-3.5 text-left cursor-pointer hover:bg-purple-800 transition"
-                      >
-                        <div className="flex items-center">
-                          <span>聯絡電話</span>
-                          {renderSortArrow('phone', studentSortField, studentSortAsc)}
-                        </div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {sortedRemainingStudents.length === 0 ? (
+                <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead className="bg-sky-950 text-white text-xs font-semibold uppercase sticky top-0 z-10 select-none">
                       <tr>
-                        <td colSpan={6} className="py-12 text-center text-gray-400 text-xs">
-                          暫無其他學員記錄
-                        </td>
+                        <th
+                          onClick={() => {
+                            if (studentSortField === 'name') setStudentSortAsc(!studentSortAsc);
+                            else { setStudentSortField('name'); setStudentSortAsc(true); }
+                          }}
+                          className="px-4 py-3.5 text-left cursor-pointer hover:bg-sky-900 transition"
+                        >
+                          <div className="flex items-center">
+                            <span>學生名字</span>
+                            {renderSortArrow('name', studentSortField, studentSortAsc)}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => {
+                            if (studentSortField === 'gender') setStudentSortAsc(!studentSortAsc);
+                            else { setStudentSortField('gender'); setStudentSortAsc(true); }
+                          }}
+                          className="px-4 py-3.5 text-left cursor-pointer hover:bg-sky-900 transition"
+                        >
+                          <div className="flex items-center">
+                            <span>性別</span>
+                            {renderSortArrow('gender', studentSortField, studentSortAsc)}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => {
+                            if (studentSortField === 'school') setStudentSortAsc(!studentSortAsc);
+                            else { setStudentSortField('school'); setStudentSortAsc(true); }
+                          }}
+                          className="px-4 py-3.5 text-left cursor-pointer hover:bg-sky-900 transition"
+                        >
+                          <div className="flex items-center">
+                            <span>就讀學校</span>
+                            {renderSortArrow('school', studentSortField, studentSortAsc)}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => {
+                            if (studentSortField === 'payment') setStudentSortAsc(!studentSortAsc);
+                            else { setStudentSortField('payment'); setStudentSortAsc(true); }
+                          }}
+                          className="px-4 py-3.5 text-center cursor-pointer hover:bg-sky-900 transition"
+                        >
+                          <div className="flex items-center justify-center">
+                            <span>付款情況</span>
+                            {renderSortArrow('payment', studentSortField, studentSortAsc)}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => {
+                            if (studentSortField === 'receipt') setStudentSortAsc(!studentSortAsc);
+                            else { setStudentSortField('receipt'); setStudentSortAsc(true); }
+                          }}
+                          className="px-4 py-3.5 text-center cursor-pointer hover:bg-sky-900 transition"
+                        >
+                          <div className="flex items-center justify-center">
+                            <span>收據檢視</span>
+                            {renderSortArrow('receipt', studentSortField, studentSortAsc)}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => {
+                            if (studentSortField === 'phone') setStudentSortAsc(!studentSortAsc);
+                            else { setStudentSortField('phone'); setStudentSortAsc(true); }
+                          }}
+                          className="px-4 py-3.5 text-left cursor-pointer hover:bg-sky-900 transition"
+                        >
+                          <div className="flex items-center">
+                            <span>聯絡電話</span>
+                            {renderSortArrow('phone', studentSortField, studentSortAsc)}
+                          </div>
+                        </th>
                       </tr>
-                    ) : (
-                      sortedRemainingStudents.map((st) => (
-                        <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
-                          <td className="px-4 py-3">
-                            <Link
-                              href={`/student/edit/${st.student_code}`}
-                              className="group flex flex-col hover:opacity-80"
-                            >
-                              <span className="font-bold text-purple-800 underline decoration-purple-300 group-hover:text-purple-950">
-                                {st.chinese_name}
-                              </span>
-                              {st.english_name && (
-                                <span className="text-xs text-gray-400">{st.english_name}</span>
-                              )}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-3 text-gray-600">{st.gender}</td>
-                          <td className="px-4 py-3 text-gray-600">{st.school || '-'}</td>
-                          <td className="px-4 py-3 text-center">
-                            <span
-                              className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
-                                st.payment_status === 'yes'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {st.payment_status === 'yes' ? '已付款' : '未付款'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {st.receipt_url ? (
-                              <a
-                                href={st.receipt_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-purple-600 hover:text-purple-900 font-semibold underline text-xs"
-                              >
-                                檢視收據
-                              </a>
-                            ) : (
-                              <span className="text-gray-400 text-xs">無</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 font-mono">
-                            <a
-                              href={getWhatsAppLink(st.phone, st.chinese_name)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
-                            >
-                              {st.phone}
-                            </a>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {registeredStudentsOfSelectedClass.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-10 text-center text-slate-400 text-xs">
+                            此班別目前尚未有其他學員登記。
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        registeredStudentsOfSelectedClass.map((st) => (
+                          <tr key={st.student_code} className="hover:bg-sky-50/40 transition">
+                            <td className="px-4 py-3">
+                              <Link
+                                href={`/student/edit/${st.student_code}`}
+                                className="group flex flex-col hover:opacity-80"
+                              >
+                                <span className="font-bold text-sky-950 underline decoration-sky-300 group-hover:text-amber-600">
+                                  {st.chinese_name}
+                                </span>
+                                {st.english_name && (
+                                  <span className="text-xs text-slate-400">{st.english_name}</span>
+                                )}
+                              </Link>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">{st.gender}</td>
+                            <td className="px-4 py-3 text-slate-600">{st.school || '-'}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span
+                                className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
+                                  st.payment_status === 'yes'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {st.payment_status === 'yes' ? '已付款' : '未付款'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {st.receipt_url ? (
+                                <a
+                                  href={st.receipt_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-sky-700 hover:text-sky-900 font-semibold underline text-xs"
+                                >
+                                  檢視收據
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 text-xs">無</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 font-mono">
+                              <a
+                                href={getWhatsAppLink(st.phone, st.chinese_name)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
+                              >
+                                {st.phone}
+                              </a>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-dashed border-sky-300 text-center text-slate-500 space-y-1">
+                <div className="text-base font-bold text-sky-950">💡 請先在上方表格勾選欲指派之目標班別</div>
+                <p className="text-xs text-slate-400">勾選後將在此處為您展開該目標班別的現有學員名冊，供您檢閱班別同儕資料。</p>
+              </div>
+            )}
 
             {/* Bottom Assignment Confirmation */}
-            <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-xs text-gray-600">
-                <span className="font-bold text-gray-900 block text-sm">分班指派設定確認</span>
+            <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-sky-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-xs text-slate-600">
+                <span className="font-bold text-slate-900 block text-sm">分班指派設定確認</span>
                 調配學員：
-                <span className="font-bold text-purple-800 ml-1">
+                <span className="font-bold text-sky-950 ml-1">
                   {currentTargetStudent ? currentTargetStudent.chinese_name : '未選取'}
                 </span>
                 <span className="mx-2">|</span>
                 目標班別：
-                <span className="font-mono font-bold text-purple-700 ml-1">
+                <span className="font-mono font-bold text-sky-800 ml-1">
                   {selectedClassForAssign || '未選取'}
                 </span>
                 {selectedClassForAssign && (
@@ -1263,7 +1324,7 @@ function ClassesAdminContent() {
                 type="button"
                 disabled={assigning || !selectedClassForAssign || !currentTargetStudent}
                 onClick={handleAssignSubmit}
-                className="w-full sm:w-auto px-8 py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold text-sm rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer"
+                className="w-full sm:w-auto px-8 py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold text-sm rounded-xl shadow-md transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
               >
                 {assigning ? '正在儲存至資料庫...' : '確認儲存學員分班指派'}
               </button>
@@ -1274,13 +1335,13 @@ function ClassesAdminContent() {
         {/* Modal: 新增 / 修改課程 */}
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8">
+            <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-100 my-8">
               <div className="flex items-center justify-between pb-4 mb-4 border-b">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">
+                  <h3 className="text-xl font-bold text-sky-950">
                     {modalMode === 'create' ? '新增課程資料' : `修改課程: ${formData.class_code}`}
                   </h3>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5">
                     {modalMode === 'create' 
                       ? '系統將依所選日期與類別自動生成動態課程編號' 
                       : '調整現有課堂排程或學額設定'}
@@ -1289,7 +1350,7 @@ function ClassesAdminContent() {
                 <button
                   type="button"
                   onClick={() => setModalMode(null)}
-                  className="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1 cursor-pointer"
                 >
                   ✕
                 </button>
@@ -1298,27 +1359,27 @@ function ClassesAdminContent() {
               <form onSubmit={handleFormSubmit} className="space-y-4" noValidate>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">
-                      課程編號 <span className="text-xs font-normal text-purple-600">(動態自動生成・唯讀)</span>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
+                      課程編號 <span className="text-xs font-normal text-sky-800">(動態自動生成・唯讀)</span>
                     </label>
                     <input
                       type="text"
                       readOnly
                       disabled
                       value={formData.class_code}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono font-bold text-purple-800 bg-purple-50/60 cursor-not-allowed select-all"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono font-bold text-sky-950 bg-slate-50 cursor-not-allowed select-all"
                     />
-                    <p className="mt-1 text-[11px] text-gray-400">格式：年月-類別-序號 (例如：202609-SPEC-001)</p>
+                    <p className="mt-1 text-[11px] text-slate-400">格式：年月-類別-序號 (例如：202609-SPEC-001)</p>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
                       課程類別 <span className="text-rose-600">*</span>
                     </label>
                     <select
                       value={formData.category}
                       onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white font-medium focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm bg-white font-medium focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     >
                       {CATEGORY_OPTIONS.map((cat) => (
                         <option key={cat.code} value={cat.label}>
@@ -1330,7 +1391,7 @@ function ClassesAdminContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
                     班別名稱 <span className="text-rose-600">*</span>
                   </label>
                   <input
@@ -1342,7 +1403,7 @@ function ClassesAdminContent() {
                     }}
                     placeholder="例如：女拔協恩週末強化專班 / 考小實戰遊戲班 (A組)"
                     className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                      fieldErrors.class_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                      fieldErrors.class_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                     }`}
                   />
                   {fieldErrors.class_name && (
@@ -1350,15 +1411,15 @@ function ClassesAdminContent() {
                   )}
                 </div>
 
-                <div className="space-y-2 bg-gray-50/70 p-3.5 rounded-xl border border-gray-200">
+                <div className="space-y-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                       <span>📅</span> 上課堂數日期設定 <span className="text-rose-600">*</span>
                     </label>
                     <button
                       type="button"
                       onClick={handleAddSessionDate}
-                      className="text-xs font-bold text-purple-700 hover:text-purple-900 bg-purple-50 px-2.5 py-1 rounded-lg border border-purple-200 cursor-pointer"
+                      className="text-xs font-bold text-sky-900 hover:text-sky-950 bg-white px-2.5 py-1 rounded-lg border border-sky-300 cursor-pointer shadow-sm"
                     >
                       + 增加課堂日期
                     </button>
@@ -1367,14 +1428,14 @@ function ClassesAdminContent() {
                   <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
                     {sessionDates.map((d, index) => (
                       <div key={index} className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-gray-400 w-14">
+                        <span className="text-xs font-mono font-bold text-slate-400 w-14">
                           第 {index + 1} 堂:
                         </span>
                         <input
                           type="date"
                           value={d}
                           onChange={(e) => handleSessionDateChange(index, e.target.value)}
-                          className="flex-1 px-3 py-1.5 border border-gray-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                          className="flex-1 px-3 py-1.5 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-sky-700 focus:outline-none"
                         />
                         {sessionDates.length > 1 && (
                           <button
@@ -1390,13 +1451,13 @@ function ClassesAdminContent() {
                     ))}
                   </div>
 
-                  <p className="text-[11px] text-gray-500 pt-1">
+                  <p className="text-[11px] text-slate-500 pt-1">
                     註：第 1 堂為主開課日，將同步影響動態課程編號生成與名冊時序排序。
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
                     學額上限 (人) <span className="text-rose-600">*</span>
                   </label>
                   <input
@@ -1409,7 +1470,7 @@ function ClassesAdminContent() {
                       if (fieldErrors.max_capacity) setFieldErrors({ ...fieldErrors, max_capacity: '' });
                     }}
                     className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                      fieldErrors.max_capacity ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                      fieldErrors.max_capacity ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
                     }`}
                   />
                   {fieldErrors.max_capacity && (
@@ -1418,13 +1479,13 @@ function ClassesAdminContent() {
                 </div>
 
                 <div className="pt-1">
-                  <label className="block text-xs font-bold text-gray-800 mb-1">
+                  <label className="block text-xs font-bold text-slate-800 mb-1">
                     上課時段 (雙時鐘設定) <span className="text-rose-600">*</span>
                   </label>
 
-                  <div className="mb-2.5 p-2.5 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between">
-                    <span className="text-xs text-gray-600 font-medium">目前設定時段：</span>
-                    <span className="font-mono font-bold text-purple-800 text-sm tracking-wide">
+                  <div className="mb-2.5 p-2.5 bg-sky-50 border border-sky-200 rounded-xl flex items-center justify-between">
+                    <span className="text-xs text-slate-600 font-medium">目前設定時段：</span>
+                    <span className="font-mono font-bold text-sky-950 text-sm tracking-wide">
                       {formData.duration}
                     </span>
                   </div>
@@ -1459,13 +1520,13 @@ function ClassesAdminContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">課堂詳情 / 授課地點備註</label>
+                  <label className="block text-xs font-bold text-slate-800 mb-1">課堂詳情 / 授課地點備註</label>
                   <textarea
                     rows={2}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="請輸入授課地點、教材說明或導師安排備註..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-sky-700"
                   />
                 </div>
 
@@ -1473,14 +1534,14 @@ function ClassesAdminContent() {
                   <button
                     type="button"
                     onClick={() => setModalMode(null)}
-                    className="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer"
+                    className="px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
                   >
                     取消
                   </button>
                   <button
                     type="submit"
                     disabled={saving}
-                    className="px-6 py-2.5 text-sm font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow transition disabled:opacity-50 cursor-pointer"
+                    className="px-6 py-2.5 text-sm font-bold text-white bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 rounded-xl shadow transition disabled:opacity-50 cursor-pointer"
                   >
                     {saving ? '正在儲存...' : modalMode === 'create' ? '確認新增' : '儲存變更'}
                   </button>
@@ -1496,7 +1557,7 @@ function ClassesAdminContent() {
 
 export default function ClassAdminPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-gray-500">載入中...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">載入中...</div>}>
       <ClassesAdminContent />
     </Suspense>
   );
