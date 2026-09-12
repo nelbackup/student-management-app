@@ -76,7 +76,6 @@ function ClassesAdminContent() {
     setLoading(true);
     setFeedback(null);
     try {
-      // 1. Query classes
       const { data: rawClasses, error: classErr } = await supabase
         .from('classes')
         .select('*')
@@ -85,7 +84,6 @@ function ClassesAdminContent() {
 
       if (classErr) throw classErr;
 
-      // 2. Query students
       const { data: rawStudents, error: studentErr } = await supabase
         .from('students')
         .select('student_code, chinese_name, english_name, phone, class_code');
@@ -129,17 +127,14 @@ function ClassesAdminContent() {
     loadData();
   }, []);
 
-  // Sort students: current student on top, then alphabetical by Chinese name
+  // Sorted Students: Current pinned on top, others sorted by Chinese name alphabetically
   const sortedStudentsForAssignment = useMemo(() => {
     const list = [...students];
     return list.sort((a, b) => {
-      // Pin current student from searchParams to the very top
       if (preselectedStudent) {
         if (a.student_code === preselectedStudent) return -1;
         if (b.student_code === preselectedStudent) return 1;
       }
-
-      // Alphabetical comparison using Traditional Chinese locale collation
       const nameA = a.chinese_name || a.english_name || '';
       const nameB = b.chinese_name || b.english_name || '';
       return nameA.localeCompare(nameB, 'zh-Hant');
@@ -221,8 +216,8 @@ function ClassesAdminContent() {
     setFeedback(null);
 
     if (!validateForm()) return;
-
     setSaving(true);
+
     try {
       if (modalMode === 'create') {
         const { error } = await supabase.from('classes').insert([
@@ -235,7 +230,7 @@ function ClassesAdminContent() {
             description: formData.description.trim(),
             max_capacity: Number(formData.max_capacity),
             enrolled_count: 0,
-            status: formData.status || 'active',
+            status: 'active',
           },
         ]);
         if (error) throw error;
@@ -250,7 +245,6 @@ function ClassesAdminContent() {
             duration: formData.duration.trim(),
             description: formData.description.trim(),
             max_capacity: Number(formData.max_capacity),
-            status: formData.status,
           })
           .eq('class_code', formData.class_code);
         if (error) throw error;
@@ -333,7 +327,7 @@ function ClassesAdminContent() {
 
       setFeedback({
         type: 'success',
-        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫人數已同步！`,
+        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫已同步更新！`,
       });
 
       setSelectedStudentsToAssign([]);
@@ -353,7 +347,7 @@ function ClassesAdminContent() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">課程與堂別中心</h1>
-            <p className="text-sm text-gray-500 mt-1">課程詳細管理與學員分班指派作業</p>
+            <p className="text-sm text-gray-500 mt-1">管理課程詳細資料與學員分班指派作業</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -403,7 +397,7 @@ function ClassesAdminContent() {
           </button>
         </div>
 
-        {/* Feedback Banner */}
+        {/* Feedback Alert */}
         {feedback && (
           <div
             className={`p-4 mb-6 rounded-xl text-sm font-medium border flex items-center gap-2 ${
@@ -418,7 +412,7 @@ function ClassesAdminContent() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 1: Class Listing                                                      */}
+        {/* TAB 1: Class Listing (Full classes, suspend button completely removed)     */}
         {/* ========================================================================= */}
         {viewTab === 'admin' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
@@ -508,7 +502,7 @@ function ClassesAdminContent() {
             <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl">
               <h2 className="text-sm font-bold text-purple-900">分班指派作業流程</h2>
               <p className="text-xs text-purple-700 mt-0.5">
-                步驟 1：勾選目標課堂 ➔ 步驟 2：從下表勾選學員（當前編輯學員置頂，其餘按中文姓名筆劃/拼音排序） ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
+                步驟 1：勾選目標課堂 ➔ 步驟 2：從下表勾選學員（當前編輯學員置頂，其餘按中文姓名排序） ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
               </p>
             </div>
 
@@ -589,7 +583,7 @@ function ClassesAdminContent() {
               </table>
             </div>
 
-            {/* Student Assignment List with Pinned Top Student & Alphabetical Order */}
+            {/* Student Assignment List with Dedicated Column Headers */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                 <div>
@@ -704,7 +698,7 @@ function ClassesAdminContent() {
               </div>
             </div>
 
-            {/* Bottom Save Confirmation Bar */}
+            {/* Bottom Confirmation Bar */}
             <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-xs text-gray-600">
                 <span className="font-bold text-gray-900 block text-sm">分班設定摘要</span>
@@ -746,7 +740,7 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* Modal: Create or Edit Class Details */}
+        {/* Modal: Create or Edit Class */}
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8">

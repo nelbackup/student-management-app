@@ -27,126 +27,109 @@ interface ClassItem {
   class_name: string;
   lesson_date: string;
   duration: string;
-  category?: string;
-  description?: string;
+  status?: string;
 }
 
 export default function RosterPage() {
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [allClasses, setAllClasses] = useState<ClassItem[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedSession, setSelectedSession] = useState<string>('ALL');
-  const [classes, setClasses] = useState<ClassItem[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // 1. Initial load: Fetch all distinct class dates from the classes table
+  // 1. Fetch available classes (chronologically sorted)
   useEffect(() => {
-    const fetchAvailableDates = async () => {
+    const fetchAvailableClasses = async () => {
       try {
         const { data, error } = await supabase
           .from('classes')
-          .select('lesson_date')
-          .order('lesson_date', { ascending: false });
+          .select('class_code, class_name, lesson_date, duration, status')
+          .neq('status', 'suspended')
+          .order('lesson_date', { ascending: true });
 
         if (error) throw error;
 
-        const uniqueDates = Array.from(
-          new Set((data || []).map((c) => c.lesson_date).filter(Boolean))
-        ) as string[];
+        const classList = data || [];
+        setAllClasses(classList);
 
-        setAvailableDates(uniqueDates);
-
-        // Auto-select the first available date if not set
-        if (uniqueDates.length > 0) {
-          setSelectedDate(uniqueDates[0]);
+        // Extract distinct chronological dates
+        const distinctDates = Array.from(new Set(classList.map((c) => c.lesson_date))).filter(Boolean);
+        if (distinctDates.length > 0) {
+          setSelectedDate(distinctDates[0]);
         }
       } catch (err: any) {
-        console.error('Error fetching available class dates:', err.message || err);
+        console.error('Error fetching classes:', err.message || err);
       }
     };
 
-    fetchAvailableDates();
+    fetchAvailableClasses();
   }, []);
 
-  // 2. Fetch classes and students whenever selectedDate changes
+  // Distinct available dates sorted chronologically
+  const availableDates = useMemo(() => {
+    return Array.from(new Set(allClasses.map((c) => c.lesson_date)))
+      .filter(Boolean)
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  }, [allClasses]);
+
+  // Distinct available sessions for selected date sorted chronologically
+  const availableSessions = useMemo(() => {
+    if (!selectedDate) return [];
+    const dateClasses = allClasses.filter((c) => c.lesson_date === selectedDate);
+    return Array.from(new Set(dateClasses.map((c) => c.duration)))
+      .filter(Boolean)
+      .sort((a, b) => {
+        const startA = a.split('-')[0].trim();
+        const startB = b.split('-')[0].trim();
+        return startA.localeCompare(startB);
+      });
+  }, [allClasses, selectedDate]);
+
+  // Fetch students when selectedDate changes
   useEffect(() => {
     if (!selectedDate) return;
 
-    const fetchDataForDate = async () => {
+    const fetchStudents = async () => {
       setLoading(true);
-      // Automatically reset session filter to 'ALL' whenever date changes
       setSelectedSession('ALL');
 
       try {
-        const { data: classData, error: classError } = await supabase
-          .from('classes')
-          .select('*')
-          .eq('lesson_date', selectedDate);
+        const targetClassCodes = allClasses
+          .filter((c) => c.lesson_date === selectedDate)
+          .map((c) => c.class_code);
 
-        if (classError) throw classError;
-        setClasses(classData || []);
-
-        if (classData && classData.length > 0) {
-          const classCodes = classData.map((c) => c.class_code);
-          const { data: studentData, error: studentError } = await supabase
-            .from('students')
-            .select('*')
-            .in('class_code', classCodes);
-
-          if (studentError) throw studentError;
-          setStudents(studentData || []);
-        } else {
+        if (targetClassCodes.length === 0) {
           setStudents([]);
+          return;
         }
+
+        const { data, error } = await supabase
+          .from('students')
+          .select('*')
+          .in('class_code', targetClassCodes);
+
+        if (error) throw error;
+        setStudents(data || []);
       } catch (err: any) {
-        console.error('Error loading roster data:', err.message || err);
+        console.error('Error fetching roster students:', err.message || err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDataForDate();
-  }, [selectedDate]);
+    fetchStudents();
+  }, [selectedDate, allClasses]);
 
-  // Derive distinct session durations for classes on the chosen date
-  const sessionOptions = useMemo(() => {
-    return Array.from(new Set(classes.map((c) => c.duration))).filter(Boolean);
-  }, [classes]);
-
-  // Filter students based on selected session
+  // Filter students based on chosen session
   const filteredStudents = useMemo(() => {
     if (selectedSession === 'ALL') return students;
-    const targetCodes = classes
-      .filter((c) => c.duration === selectedSession)
+    const targetCodes = allClasses
+      .filter((c) => c.lesson_date === selectedDate && c.duration === selectedSession)
       .map((c) => c.class_code);
     return students.filter((s) => targetCodes.includes(s.class_code));
-  }, [students, classes, selectedSession]);
+  }, [students, allClasses, selectedDate, selectedSession]);
 
-  // Gender & enrollment metrics
-  const stats = useMemo(() => {
-    const boys = filteredStudents.filter((s) => s.gender === '男').length;
-    const girls = filteredStudents.filter((s) => s.gender === '女').length;
-    return { boys, girls, total: filteredStudents.length };
-  }, [filteredStudents]);
-
-  // Inline toggle for payment status
-  const handlePaymentToggle = async (studentCode: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'yes' ? 'no' : 'yes';
-    setStudents((prev) =>
-      prev.map((s) => (s.student_code === studentCode ? { ...s, payment_status: nextStatus } : s))
-    );
-
-    const { error } = await supabase
-      .from('students')
-      .update({ payment_status: nextStatus })
-      .eq('student_code', studentCode);
-
-    if (error) {
-      console.error('Failed to update payment status:', error.message);
-    }
-  };
-
-  // Inline toggle for attendance status
+  // Toggle Attendance Checkbox (Only editable control)
   const handleAttendanceToggle = async (studentCode: string, currentStatus: boolean) => {
     const nextStatus = !currentStatus;
     setStudents((prev) =>
@@ -159,7 +142,7 @@ export default function RosterPage() {
       .eq('student_code', studentCode);
 
     if (error) {
-      console.error('Failed to update attendance:', error.message);
+      console.error('Failed to update attendance status:', error.message);
     }
   };
 
@@ -177,7 +160,7 @@ export default function RosterPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">課堂點名名冊</h1>
-            <p className="text-sm text-gray-500 mt-1">即時學員簽到、繳費確認、資料修改與 WhatsApp 聯絡</p>
+            <p className="text-sm text-gray-500 mt-1">即時學員簽到、繳費檢視、學員資料管理與 WhatsApp 聯絡</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -187,27 +170,20 @@ export default function RosterPage() {
               課程管理
             </Link>
             <Link
-              href="/import/excel"
-              className="inline-flex items-center justify-center px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl shadow-sm transition"
-            >
-              Excel 遷移
-            </Link>
-            <Link
-              href="/import"
+              href="/student"
               className="inline-flex items-center justify-center px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-semibold rounded-xl shadow-sm transition"
             >
-              + 匯入學員
+              學員管理 (Student Management)
             </Link>
           </div>
         </div>
 
-        {/* Dynamic Filters & Date Dropdown */}
+        {/* Filter Dropdowns */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Class Date Dropdown */}
             <div>
               <label className="block text-sm font-bold text-gray-800 mb-1.5">
-                上課日期 (選擇開課日期)
+                上課日期 (Available Dates)
               </label>
               <select
                 value={selectedDate}
@@ -215,7 +191,7 @@ export default function RosterPage() {
                 className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm bg-white font-medium text-gray-800"
               >
                 {availableDates.length === 0 ? (
-                  <option value="">暫無任何排課日期</option>
+                  <option value="">暫無任何有效開課日期</option>
                 ) : (
                   availableDates.map((date) => (
                     <option key={date} value={date}>
@@ -226,10 +202,9 @@ export default function RosterPage() {
               </select>
             </div>
 
-            {/* Automatically Synced Session Dropdown */}
             <div>
               <label className="block text-sm font-bold text-gray-800 mb-1.5">
-                堂別時段 (Session)
+                堂別時段 (Available Sessions)
               </label>
               <select
                 value={selectedSession}
@@ -237,77 +212,88 @@ export default function RosterPage() {
                 className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm bg-white font-medium text-gray-800"
               >
                 <option value="ALL">全部堂別時段 (All Sessions)</option>
-                {sessionOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
+                {availableSessions.map((session) => (
+                  <option key={session} value={session}>
+                    {session}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Demographic Counter Bar */}
-          <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between text-sm text-gray-600">
+          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between text-sm text-gray-600">
             <div>
-              <span className="font-bold text-gray-800">名冊統計：</span> {stats.boys} 男 / {stats.girls} 女 
-              <span className="font-bold text-purple-700 ml-1.5">(共 {stats.total} 人)</span>
+              <span className="font-bold text-gray-800">名冊統計：</span>
+              <span className="font-bold text-purple-700 ml-1">共 {filteredStudents.length} 人</span>
             </div>
             {loading && <span className="text-purple-600 font-medium animate-pulse">資料讀取中...</span>}
           </div>
         </div>
 
-        {/* Student Table */}
+        {/* Strictly Ordered Read-Only Table (Only Attendance Editable) */}
         <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-purple-700 text-white">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase">學生編號</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase">性別</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase">學生名字</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase">就讀學校</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold uppercase">付款情況</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold uppercase">收據檢視</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase">聯絡電話</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold uppercase">出席簽到</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold uppercase">操作</th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">學生名字</th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">性別</th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">就讀學校</th>
+                <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase">付款情況</th>
+                <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase">收據檢視</th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">聯絡電話</th>
+                <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase">出席簽到</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 text-sm">
+            <tbody className="divide-y divide-gray-200">
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-gray-400">
-                    {loading ? '正在讀取名冊記錄...' : '所選日期及時段暫無學生報名記錄'}
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
+                    {loading ? '正在讀取名冊記錄...' : '所選日期及時段暫無學生記錄'}
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((student) => (
-                  <tr key={student.student_code} className="hover:bg-purple-50/40 transition">
-                    <td className="px-4 py-3 font-mono text-gray-800 font-semibold">{student.student_code}</td>
-                    <td className="px-4 py-3 text-gray-600">{student.gender}</td>
+                filteredStudents.map((st) => (
+                  <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
+                    {/* 1. 學生名字 (Linked to Edit Page) */}
                     <td className="px-4 py-3">
-                      <div className="font-bold text-gray-900">{student.chinese_name}</div>
-                      <div className="text-xs text-gray-500">{student.english_name}</div>
+                      <Link
+                        href={`/student/edit/${st.student_code}`}
+                        className="group flex flex-col hover:opacity-80"
+                      >
+                        <span className="font-bold text-purple-800 underline decoration-purple-300 group-hover:text-purple-950">
+                          {st.chinese_name}
+                        </span>
+                        <span className="text-xs text-gray-400">{st.english_name}</span>
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{student.school || '-'}</td>
+
+                    {/* 2. 性別 (Readonly) */}
+                    <td className="px-4 py-3 text-gray-600">{st.gender}</td>
+
+                    {/* 3. 就讀學校 (Readonly) */}
+                    <td className="px-4 py-3 text-gray-600">{st.school || '-'}</td>
+
+                    {/* 4. 付款情況 (Readonly) */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => handlePaymentToggle(student.student_code, student.payment_status)}
-                        className={`px-3 py-1 text-xs font-bold rounded-full transition ${
-                          student.payment_status === 'yes'
-                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      <span
+                        className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
+                          st.payment_status === 'yes'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
                         }`}
                       >
-                        {student.payment_status === 'yes' ? '已付款 (yes)' : '未付款 (no)'}
-                      </button>
+                        {st.payment_status === 'yes' ? '已付款 (yes)' : '未付款 (no)'}
+                      </span>
                     </td>
+
+                    {/* 5. 收據檢視 (Readonly link) */}
                     <td className="px-4 py-3 text-center">
-                      {student.receipt_url ? (
+                      {st.receipt_url ? (
                         <a
-                          href={student.receipt_url}
+                          href={st.receipt_url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-purple-600 hover:text-purple-900 font-medium underline text-xs"
+                          className="text-purple-600 hover:text-purple-900 font-semibold underline text-xs"
                         >
                           檢視收據
                         </a>
@@ -315,33 +301,27 @@ export default function RosterPage() {
                         <span className="text-gray-400 text-xs">無</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+
+                    {/* 6. 聯絡電話 (Readonly WhatsApp link) */}
+                    <td className="px-4 py-3 font-mono">
                       <a
-                        href={getWhatsAppLink(student.phone, student.chinese_name)}
+                        href={getWhatsAppLink(st.phone, st.chinese_name)}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-blue-600 hover:text-blue-800 flex items-center gap-1 font-mono font-semibold"
+                        className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
                       >
-                        <span>{student.phone}</span>
+                        {st.phone}
                       </a>
                     </td>
+
+                    {/* 7. 出席簽到 (Editable checkbox) */}
                     <td className="px-4 py-3 text-center">
                       <input
                         type="checkbox"
-                        checked={student.attendance_status}
-                        onChange={() =>
-                          handleAttendanceToggle(student.student_code, student.attendance_status)
-                        }
+                        checked={st.attendance_status}
+                        onChange={() => handleAttendanceToggle(st.student_code, st.attendance_status)}
                         className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
                       />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Link
-                        href={`/student/edit/${student.student_code}`}
-                        className="text-xs text-purple-700 hover:text-purple-900 font-bold underline px-2.5 py-1 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition"
-                      >
-                        編輯
-                      </Link>
                     </td>
                   </tr>
                 ))

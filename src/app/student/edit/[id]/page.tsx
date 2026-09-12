@@ -61,7 +61,6 @@ export default function EditStudentPage() {
       setGeneralError(null);
 
       try {
-        // 1. Fetch available classes ordered chronologically by lesson_date
         const { data: classList, error: classErr } = await supabase
           .from('classes')
           .select('class_code, class_name, lesson_date, duration, status')
@@ -69,7 +68,6 @@ export default function EditStudentPage() {
 
         if (classErr) throw classErr;
 
-        // Sort accurately by date and starting hour
         const sortedClasses = (classList || []).sort((a, b) => {
           const timeA = a.duration ? a.duration.split('-')[0].trim() : '00:00';
           const timeB = b.duration ? b.duration.split('-')[0].trim() : '00:00';
@@ -80,7 +78,6 @@ export default function EditStudentPage() {
 
         setAvailableClasses(sortedClasses);
 
-        // 2. Fetch student details
         const { data: student, error: studentErr } = await supabase
           .from('students')
           .select('*')
@@ -112,7 +109,6 @@ export default function EditStudentPage() {
     loadData();
   }, [studentCode]);
 
-  // Check if session has expired based on lesson date and end time
   const isSessionExpired = (lessonDate: string, durationStr: string) => {
     try {
       const parts = (durationStr || '').split('-');
@@ -183,10 +179,7 @@ export default function EditStudentPage() {
     e.preventDefault();
     setGeneralError(null);
 
-    if (!validate()) {
-      return;
-    }
-
+    if (!validate()) return;
     setSaving(true);
 
     try {
@@ -233,15 +226,13 @@ export default function EditStudentPage() {
     <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
         {/* Header */}
-        <div className="flex items-start justify-between pb-5 mb-6 border-b border-gray-100">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900">修改學員資料</h1>
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-400">學員編號</span>
-              <span className="text-base font-mono font-bold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200">
-                {studentCode}
-              </span>
-            </div>
+        <div className="pb-5 mb-6 border-b border-gray-100">
+          <h1 className="text-2xl font-black text-gray-900">修改學員資料</h1>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">學員編號</span>
+            <span className="text-base font-mono font-bold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200">
+              {studentCode}
+            </span>
           </div>
         </div>
 
@@ -272,9 +263,7 @@ export default function EditStudentPage() {
                   onChange={handleChange}
                   placeholder="例如：黃子健"
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.chinese_name
-                      ? 'border-rose-400 bg-rose-50/30'
-                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.chinese_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                   }`}
                 />
                 {errors.chinese_name && (
@@ -293,9 +282,7 @@ export default function EditStudentPage() {
                   onChange={handleChange}
                   placeholder="例如：Lucas"
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.english_name
-                      ? 'border-rose-400 bg-rose-50/30'
-                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.english_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                   }`}
                 />
                 {errors.english_name && (
@@ -332,9 +319,7 @@ export default function EditStudentPage() {
                   placeholder="例如：98765432"
                   maxLength={8}
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.phone
-                      ? 'border-rose-400 bg-rose-50/30'
-                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                   }`}
                 />
                 {errors.phone && (
@@ -400,9 +385,7 @@ export default function EditStudentPage() {
                   onChange={handleChange}
                   placeholder="https://example.com/receipt.jpg"
                   className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                    errors.receipt_url
-                      ? 'border-rose-400 bg-rose-50/30'
-                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                    errors.receipt_url ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                   }`}
                 />
                 {errors.receipt_url && (
@@ -412,7 +395,7 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* SECTION 3: 課堂報讀與出席狀態 */}
+          {/* SECTION 3: 課堂報讀與出席紀錄 (Vertical Chronological Order) */}
           <section className="space-y-4 pt-2">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <div className="flex items-center gap-2">
@@ -422,45 +405,41 @@ export default function EditStudentPage() {
               <span className="text-xs text-gray-400">依時序直列排序</span>
             </div>
 
-            {/* Color Legend */}
             <div className="flex flex-wrap gap-4 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">綠色：有效課堂（點擊前往分班指派）</span>
+                <span className="text-gray-700 font-medium">綠色：有效課堂（點擊進入分班指派）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-rose-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">紅色：已過期未出席（缺席停用）</span>
+                <span className="text-gray-700 font-medium">紅色：已過期缺席（停用）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-gray-400 inline-block"></span>
-                <span className="text-gray-700 font-medium">灰色：已過期出席 / 已停課（已封存停用）</span>
+                <span className="text-gray-700 font-medium">灰色：已過期出席 / 已封存（停用）</span>
               </div>
             </div>
 
-            {/* Straight Vertical List of Sessions */}
             <div className="flex flex-col gap-2.5">
               {availableClasses.map((cls) => {
                 const isSelected = form.class_code === cls.class_code;
                 const expired = isSessionExpired(cls.lesson_date, cls.duration);
                 const isSuspended = cls.status === 'suspended';
 
-                // Status classification
                 let buttonState: 'active' | 'inactive-absent' | 'inactive-grey' = 'active';
 
                 if (expired || isSuspended) {
                   if (isSelected && !form.attendance_status) {
-                    buttonState = 'inactive-absent'; // Past absent -> Red
+                    buttonState = 'inactive-absent';
                   } else {
-                    buttonState = 'inactive-grey';   // Past attended or archived -> Grey
+                    buttonState = 'inactive-grey';
                   }
                 } else {
-                  buttonState = 'active'; // Future / open -> Green
+                  buttonState = 'active';
                 }
 
                 const handleSessionClick = () => {
                   if (buttonState === 'active') {
-                    // Navigate to classes list in assignment mode with this student pre-selected
                     router.push(`/classes?tab=assignment&student=${encodeURIComponent(studentCode)}`);
                   }
                 };
@@ -496,9 +475,7 @@ export default function EditStudentPage() {
                         {cls.class_code}
                       </span>
                       <div>
-                        <span className="font-bold text-sm block">
-                          {cls.class_name}
-                        </span>
+                        <span className="font-bold text-sm block">{cls.class_name}</span>
                         <div className="text-xs font-mono opacity-90 mt-0.5">
                           📅 {cls.lesson_date} | ⏰ {cls.duration}
                         </div>
@@ -509,9 +486,7 @@ export default function EditStudentPage() {
                       {isSelected && (
                         <span
                           className={`text-[11px] font-bold px-2 py-0.5 rounded ${
-                            buttonState === 'active'
-                              ? 'bg-white text-emerald-800'
-                              : 'bg-rose-200 text-rose-900'
+                            buttonState === 'active' ? 'bg-white text-emerald-800' : 'bg-rose-200 text-rose-900'
                           }`}
                         >
                           現讀堂別
@@ -527,7 +502,7 @@ export default function EditStudentPage() {
                         }`}
                       >
                         {buttonState === 'active'
-                          ? '有效堂別 (點擊調整分班 ➔)'
+                          ? '有效堂別 (點擊前往分班指派 ➔)'
                           : buttonState === 'inactive-absent'
                           ? '✕ 已過期缺席 (停用)'
                           : '已封存 / 已出席 (停用)'}
