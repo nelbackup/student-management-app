@@ -38,6 +38,7 @@ export default function RosterPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Fetch classes and matching enrolled students by selected date
   const fetchData = async (dateStr: string) => {
     setLoading(true);
     try {
@@ -62,7 +63,7 @@ export default function RosterPage() {
         setStudents([]);
       }
     } catch (err: any) {
-      console.error('Error loading roster:', err.message || err);
+      console.error('Error loading roster data:', err.message || err);
     } finally {
       setLoading(false);
     }
@@ -72,10 +73,12 @@ export default function RosterPage() {
     fetchData(selectedDate);
   }, [selectedDate]);
 
+  // Derive distinct duration time slots for current classes
   const sessionOptions = useMemo(() => {
     return Array.from(new Set(classes.map((c) => c.duration))).filter(Boolean);
   }, [classes]);
 
+  // Filter students based on chosen session
   const filteredStudents = useMemo(() => {
     if (selectedSession === 'ALL') return students;
     const targetCodes = classes
@@ -84,12 +87,14 @@ export default function RosterPage() {
     return students.filter((s) => targetCodes.includes(s.class_code));
   }, [students, classes, selectedSession]);
 
+  // Calculate live gender distribution and headcounts
   const stats = useMemo(() => {
     const boys = filteredStudents.filter((s) => s.gender === '男').length;
     const girls = filteredStudents.filter((s) => s.gender === '女').length;
     return { boys, girls, total: filteredStudents.length };
   }, [filteredStudents]);
 
+  // Toggle payment status
   const handlePaymentToggle = async (studentCode: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'yes' ? 'no' : 'yes';
     setStudents((prev) =>
@@ -102,11 +107,12 @@ export default function RosterPage() {
       .eq('student_code', studentCode);
 
     if (error) {
-      console.error('Failed to update payment:', error.message);
+      console.error('Failed to update payment status:', error.message);
       fetchData(selectedDate);
     }
   };
 
+  // Toggle attendance status
   const handleAttendanceToggle = async (studentCode: string, currentStatus: boolean) => {
     const nextStatus = !currentStatus;
     setStudents((prev) =>
@@ -124,10 +130,11 @@ export default function RosterPage() {
     }
   };
 
+  // Format WhatsApp Click-to-Chat Link (Default HK prefix 852)
   const getWhatsAppLink = (phone: string, studentName: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
-    const text = encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名通知。`);
+    const text = encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名與上課通知。`);
     return `https://wa.me/${fullNumber}?text=${text}`;
   };
 
@@ -138,9 +145,15 @@ export default function RosterPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">課堂點名名冊</h1>
-            <p className="text-sm text-gray-500 mt-1">即時學員簽到、繳費確認與 WhatsApp 聯絡</p>
+            <p className="text-sm text-gray-500 mt-1">即時學員簽到、繳費確認、資料修改與 WhatsApp 聯絡</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/classes"
+              className="inline-flex items-center justify-center px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
+            >
+              課程管理
+            </Link>
             <Link
               href="/import/excel"
               className="inline-flex items-center justify-center px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
@@ -156,28 +169,28 @@ export default function RosterPage() {
           </div>
         </div>
 
-        {/* Filters and Controls */}
+        {/* Filters & Demographic Counter */}
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">
+              <label className="block text-sm font-bold text-gray-800 mb-1">
                 上課日期 (Select Date)
               </label>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">
+              <label className="block text-sm font-bold text-gray-800 mb-1">
                 堂別時段 (Session)
               </label>
               <select
                 value={selectedSession}
                 onChange={(e) => setSelectedSession(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm bg-white"
               >
                 <option value="ALL">全部堂別 (All Sessions)</option>
                 {sessionOptions.map((opt) => (
@@ -191,15 +204,15 @@ export default function RosterPage() {
 
           <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between text-sm text-gray-600">
             <div>
-              <span className="font-semibold text-gray-800">名冊統計：</span> {stats.boys} 男 / {stats.girls} 女 
-              <span className="font-bold text-purple-700 ml-1">(共 {stats.total} 人)</span>
+              <span className="font-bold text-gray-800">名冊統計：</span> {stats.boys} 男 / {stats.girls} 女 
+              <span className="font-bold text-purple-700 ml-1.5">(共 {stats.total} 人)</span>
             </div>
             {loading && <span className="text-purple-600 font-medium animate-pulse">資料載入中...</span>}
           </div>
         </div>
 
         {/* Student Table */}
-        <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-gray-200">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-purple-700 text-white">
               <tr>
@@ -224,10 +237,10 @@ export default function RosterPage() {
               ) : (
                 filteredStudents.map((student) => (
                   <tr key={student.student_code} className="hover:bg-purple-50/40 transition">
-                    <td className="px-4 py-3 font-mono text-gray-800">{student.student_code}</td>
+                    <td className="px-4 py-3 font-mono text-gray-800 font-semibold">{student.student_code}</td>
                     <td className="px-4 py-3 text-gray-600">{student.gender}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{student.chinese_name}</div>
+                      <div className="font-bold text-gray-900">{student.chinese_name}</div>
                       <div className="text-xs text-gray-500">{student.english_name}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{student.school || '-'}</td>
@@ -262,7 +275,7 @@ export default function RosterPage() {
                         href={getWhatsAppLink(student.phone, student.chinese_name)}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                        className="text-blue-600 hover:text-blue-800 flex items-center gap-1 font-mono"
                       >
                         <span>{student.phone}</span>
                       </a>
@@ -280,7 +293,7 @@ export default function RosterPage() {
                     <td className="px-4 py-3 text-center">
                       <Link
                         href={`/student/edit/${student.student_code}`}
-                        className="text-xs text-purple-700 hover:text-purple-900 font-semibold underline px-2 py-1 bg-purple-50 hover:bg-purple-100 rounded"
+                        className="text-xs text-purple-700 hover:text-purple-900 font-bold underline px-2.5 py-1 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 transition"
                       >
                         編輯
                       </Link>
