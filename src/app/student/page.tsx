@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -28,13 +29,27 @@ interface ClassOption {
   duration: string;
 }
 
+interface ParsedExcelRow {
+  rowNum: number;
+  student_code?: string;
+  chinese_name: string;
+  english_name: string;
+  school?: string;
+  gender?: string;
+  phone: string;
+  class_code: string;
+  payment_status?: string;
+  receipt_url?: string;
+  validationError?: string;
+}
+
 export default function StudentManagementPage() {
   const [activeTab, setActiveTab] = useState<'listing' | 'enrolment'>('listing');
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [classList, setClassList] = useState<ClassOption[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Manual Enrolment Form State
+  // Manual Form State
   const [formData, setFormData] = useState({
     chinese_name: '',
     english_name: '',
@@ -45,8 +60,14 @@ export default function StudentManagementPage() {
     payment_status: 'no',
     receipt_url: '',
   });
-  const [saving, setSaving] = useState(false);
+  const [savingManual, setSavingManual] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Excel Migration Inline State
+  const [showExcelSection, setShowExcelSection] = useState(false);
+  const [excelRows, setExcelRows] = useState<ParsedExcelRow[]>([]);
+  const [excelFileName, setExcelFileName] = useState('');
+  const [savingExcel, setSavingExcel] = useState(false);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -76,6 +97,14 @@ export default function StudentManagementPage() {
     loadInitialData();
   }, []);
 
+  const getWhatsAppLink = (phone: string, studentName: string) => {
+    const cleaned = phone.replace(/[^0-9]/g, '');
+    const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
+    const text = encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名與上課通知。`);
+    return `https://wa.me/${fullNumber}?text=${text}`;
+  };
+
+  // 1. Manual Form Submission
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedback(null);
@@ -85,9 +114,8 @@ export default function StudentManagementPage() {
       return;
     }
 
-    setSaving(true);
+    setSavingManual(true);
     try {
-      // 1. Generate sequential student ID
       const { data: latestRecords } = await supabase
         .from('students')
         .select('student_code')
@@ -101,7 +129,6 @@ export default function StudentManagementPage() {
       }
       const newStudentCode = `S${nextNum.toString().padStart(10, '0')}`;
 
-      // 2. Insert student
       const { error } = await supabase.from('students').insert([
         {
           student_code: newStudentCode,
@@ -124,7 +151,7 @@ export default function StudentManagementPage() {
         throw error;
       }
 
-      setFeedback({ type: 'success', message: `學員 ${formData.chinese_name} (${newStudentCode}) 報讀成功！` });
+      setFeedback({ type: 'success', message: `學員 ${formData.chinese_name} (${newStudentCode}) 登記成功！` });
       setFormData({
         chinese_name: '',
         english_name: '',
@@ -137,33 +164,165 @@ export default function StudentManagementPage() {
       });
       await loadInitialData();
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || '報讀失敗' });
+      setFeedback({ type: 'error', message: err.message || '登記失敗' });
     } finally {
-      setSaving(false);
+      setSavingManual(false);
+    }
+  };
+
+  // 2. Excel File Processing & Validation
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFeedback(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExcelFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rawJson: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (rawJson.length === 0) {
+          setFeedback({ type: 'error', message: '試算表內沒有可讀取的資料列，請檢查檔案內容。' });
+          return;
+        }
+
+        const seenInFile = new Set<string>();
+        const mapped: ParsedExcelRow[] = rawJson.map((row, idx) => {
+          const rowNum = idx + 2;
+          const chinese_name = String(row['chinese_name'] || row['中文姓名'] || row['學生名字'] || '').trim();
+          const english_name = String(row['english_name'] || row['英文姓名'] || '').trim();
+          const phone = String(row['phone'] || row['聯絡電話'] || row['電話'] || '').trim();
+          const class_code = String(row['class_code'] || row['班別代碼'] || row['堂別編號'] || '').trim();
+          const student_code = String(row['student_code'] || row['學生編號'] || '').trim() || undefined;
+
+          let validationError: string | undefined;
+          if (!chinese_name && !english_name) {
+            validationError = '缺少姓名';
+          } else if (!phone) {
+            validationError = '缺少聯絡電話';
+          } else if (!class_code) {
+            validationError = '缺少班別代碼';
+          }
+
+          const dupKey = `${phone}_${class_code}`;
+          if (phone && class_code) {
+            if (seenInFile.has(dupKey)) {
+              validationError = `檔案內重複報讀同一班別 (${class_code})`;
+            } else {
+              seenInFile.add(dupKey);
+            }
+          }
+
+          return {
+            rowNum,
+            student_code,
+            chinese_name,
+            english_name,
+            school: String(row['school'] || row['就讀學校'] || row['學校'] || '').trim(),
+            gender: String(row['gender'] || row['性別'] || '男').trim(),
+            phone,
+            class_code,
+            payment_status: String(row['payment_status'] || row['付款情況'] || 'no').trim().toLowerCase() === 'yes' ? 'yes' : 'no',
+            receipt_url: String(row['receipt_url'] || row['收據檢視'] || row['收據'] || '').trim() || undefined,
+            validationError,
+          };
+        });
+
+        setExcelRows(mapped);
+      } catch (err: any) {
+        setFeedback({ type: 'error', message: `解析失敗: ${err.message}` });
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // 3. Confirm Excel Batch Migration
+  const handleConfirmBatchMigrate = async () => {
+    if (excelRows.length === 0) return;
+
+    const invalidRows = excelRows.filter((r) => r.validationError);
+    if (invalidRows.length > 0) {
+      setFeedback({
+        type: 'error',
+        message: `檔案內尚有 ${invalidRows.length} 筆資料有誤，請修正表格中標示紅色的項目後再試。`,
+      });
+      return;
+    }
+
+    setSavingExcel(true);
+    setFeedback(null);
+
+    try {
+      const { data: latestRecords } = await supabase
+        .from('students')
+        .select('student_code')
+        .order('student_code', { ascending: false })
+        .limit(1);
+
+      let currentNum = 1;
+      if (latestRecords && latestRecords.length > 0) {
+        const numPart = parseInt(latestRecords[0].student_code.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(numPart)) currentNum = numPart + 1;
+      }
+
+      const payload = excelRows.map((row) => ({
+        student_code: row.student_code || `S${(currentNum++).toString().padStart(10, '0')}`,
+        chinese_name: row.chinese_name,
+        english_name: row.english_name,
+        school: row.school || '',
+        gender: row.gender || '男',
+        phone: row.phone,
+        class_code: row.class_code,
+        payment_status: row.payment_status || 'no',
+        receipt_url: row.receipt_url || null,
+        attendance_status: false,
+      }));
+
+      for (const item of payload) {
+        const { error } = await supabase
+          .from('students')
+          .upsert(item, { onConflict: 'student_code' });
+        if (error) throw error;
+      }
+
+      setFeedback({ type: 'success', message: `試算表批次匯入成功！共新增/更新 ${payload.length} 筆學員資料。` });
+      setExcelRows([]);
+      setExcelFileName('');
+      setShowExcelSection(false);
+      await loadInitialData();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: `匯入時發生錯誤: ${err.message}` });
+    } finally {
+      setSavingExcel(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Top Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
           <div>
-            <h1 className="text-2xl font-black text-gray-900">學員管理中心 (Student Management)</h1>
-            <p className="text-sm text-gray-500 mt-1">管理學員名單、個別登記報讀及批次試算表遷移</p>
+            <h1 className="text-2xl font-black text-gray-900">學員管理中心</h1>
+            <p className="text-sm text-gray-500 mt-1">學員名冊列表、新學員登記與試算表批次匯入</p>
           </div>
           <div className="flex items-center gap-3">
             <Link
               href="/roster"
               className="px-4 py-2 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition"
             >
-              返回點名名冊 (Roster)
+              返回點名名冊
             </Link>
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 mb-6 bg-white p-1 rounded-2xl shadow-sm">
+        {/* Tab Selector */}
+        <div className="flex border-b border-gray-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
             onClick={() => {
               setActiveTab('listing');
@@ -175,7 +334,7 @@ export default function StudentManagementPage() {
                 : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
             }`}
           >
-            📋 學員名冊列表 (Student Listing)
+            📋 學員名冊列表
           </button>
           <button
             onClick={() => {
@@ -188,14 +347,14 @@ export default function StudentManagementPage() {
                 : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
             }`}
           >
-            ✍️ 新學員登記報讀 (New Student Enrolment)
+            ✍️ 新學員登記報讀
           </button>
         </div>
 
         {/* Feedback Alert */}
         {feedback && (
           <div
-            className={`p-4 mb-6 rounded-xl text-sm font-medium border flex items-center gap-2 ${
+            className={`p-4 rounded-xl text-sm font-medium border flex items-center gap-2 ${
               feedback.type === 'success'
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                 : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -207,51 +366,59 @@ export default function StudentManagementPage() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 1: Student Listing                                                    */}
+        {/* TAB 1: 學員名冊列表 (與點名名冊完全對齊欄位、樣式與功能)                     */}
         {/* ========================================================================= */}
         {activeTab === 'listing' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-purple-700 text-white">
                 <tr>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">學生名字</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">學生編號</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">性別</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">就讀學校</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">所屬班別</th>
-                  <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase">付款情況</th>
-                  <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase">收據檢視</th>
-                  <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase">聯絡電話</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold">學生名字</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold">性別</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold">就讀學校</th>
+                  <th className="px-4 py-3.5 text-center text-xs font-semibold">付款情況</th>
+                  <th className="px-4 py-3.5 text-center text-xs font-semibold">收據檢視</th>
+                  <th className="px-4 py-3.5 text-left text-xs font-semibold">聯絡電話</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-gray-400">
+                    <td colSpan={6} className="py-12 text-center text-gray-400">
                       載入學員名單中...
                     </td>
                   </tr>
                 ) : students.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-gray-400">
+                    <td colSpan={6} className="py-12 text-center text-gray-400">
                       暫無學員登記記錄。
                     </td>
                   </tr>
                 ) : (
                   students.map((st) => (
                     <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
+                      {/* 學生名字 (點擊開啟修改頁) */}
                       <td className="px-4 py-3">
                         <Link
                           href={`/student/edit/${st.student_code}`}
-                          className="font-bold text-purple-700 hover:text-purple-900 underline"
+                          className="group flex flex-col hover:opacity-80"
                         >
-                          {st.chinese_name} {st.english_name ? `(${st.english_name})` : ''}
+                          <span className="font-bold text-purple-800 underline decoration-purple-300 group-hover:text-purple-950">
+                            {st.chinese_name}
+                          </span>
+                          {st.english_name && (
+                            <span className="text-xs text-gray-400">{st.english_name}</span>
+                          )}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-gray-700">{st.student_code}</td>
+
+                      {/* 性別 (純文字) */}
                       <td className="px-4 py-3 text-gray-600">{st.gender}</td>
+
+                      {/* 就讀學校 (純文字) */}
                       <td className="px-4 py-3 text-gray-600">{st.school || '-'}</td>
-                      <td className="px-4 py-3 font-mono font-bold text-purple-800">{st.class_code || '未分班'}</td>
+
+                      {/* 付款情況 (純中文狀態膠囊) */}
                       <td className="px-4 py-3 text-center">
                         <span
                           className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
@@ -263,6 +430,8 @@ export default function StudentManagementPage() {
                           {st.payment_status === 'yes' ? '已付款' : '未付款'}
                         </span>
                       </td>
+
+                      {/* 收據檢視 (外部連結) */}
                       <td className="px-4 py-3 text-center">
                         {st.receipt_url ? (
                           <a
@@ -271,13 +440,24 @@ export default function StudentManagementPage() {
                             rel="noreferrer"
                             className="text-purple-600 hover:text-purple-900 font-semibold underline text-xs"
                           >
-                            檢視
+                            檢視收據
                           </a>
                         ) : (
-                          <span className="text-gray-400 text-xs">-</span>
+                          <span className="text-gray-400 text-xs">無</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-mono text-gray-700">{st.phone}</td>
+
+                      {/* 聯絡電話 (WhatsApp 連結) */}
+                      <td className="px-4 py-3 font-mono">
+                        <a
+                          href={getWhatsAppLink(st.phone, st.chinese_name)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
+                        >
+                          {st.phone}
+                        </a>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -287,141 +467,250 @@ export default function StudentManagementPage() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 2: New Student Enrolment                                              */}
+        {/* TAB 2: 新學員登記報讀 (附帶展開式試算表批次匯入區塊)                        */}
         {/* ========================================================================= */}
         {activeTab === 'enrolment' && (
-          <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 pb-3 border-b">新學員手動登記表</h2>
+          <div className="max-w-3xl mx-auto space-y-6">
+            {/* Manual Entry Form */}
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900 mb-6 pb-3 border-b">新學員手動登記表</h2>
 
-            <form onSubmit={handleManualSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <form onSubmit={handleManualSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                      中文姓名 <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.chinese_name}
+                      onChange={(e) => setFormData({ ...formData, chinese_name: e.target.value })}
+                      placeholder="例如：陳大文"
+                      className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">英文姓名</label>
+                    <input
+                      type="text"
+                      value={formData.english_name}
+                      onChange={(e) => setFormData({ ...formData, english_name: e.target.value })}
+                      placeholder="例如：David Chan"
+                      className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">性別</label>
+                    <select
+                      value={formData.gender}
+                      onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl text-sm bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    >
+                      <option value="男">男</option>
+                      <option value="女">女</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                      聯絡電話 (香港 8 位號碼) <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      maxLength={8}
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      placeholder="例如：91234567"
+                      className="w-full px-3 py-2 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">
-                    中文姓名 <span className="text-rose-600">*</span>
-                  </label>
+                  <label className="block text-xs font-bold text-gray-800 mb-1">就讀學校</label>
                   <input
                     type="text"
-                    required
-                    value={formData.chinese_name}
-                    onChange={(e) => setFormData({ ...formData, chinese_name: e.target.value })}
-                    placeholder="例如：陳大文"
+                    value={formData.school}
+                    onChange={(e) => setFormData({ ...formData, school: e.target.value })}
+                    placeholder="例如：拔萃男書院"
                     className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
                   />
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                      所屬班別 <span className="text-rose-600">*</span>
+                    </label>
+                    <select
+                      required
+                      value={formData.class_code}
+                      onChange={(e) => setFormData({ ...formData, class_code: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl text-sm bg-white font-mono focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    >
+                      <option value="">請選擇班別代碼</option>
+                      {classList.map((c) => (
+                        <option key={c.class_code} value={c.class_code}>
+                          {c.class_code} ({c.class_name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">繳費情況</label>
+                    <select
+                      value={formData.payment_status}
+                      onChange={(e) => setFormData({ ...formData, payment_status: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-xl text-sm bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    >
+                      <option value="no">未付款</option>
+                      <option value="yes">已付款</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">英文姓名</label>
+                  <label className="block text-xs font-bold text-gray-800 mb-1">收據連結</label>
                   <input
-                    type="text"
-                    value={formData.english_name}
-                    onChange={(e) => setFormData({ ...formData, english_name: e.target.value })}
-                    placeholder="例如：David Chan"
+                    type="url"
+                    value={formData.receipt_url}
+                    onChange={(e) => setFormData({ ...formData, receipt_url: e.target.value })}
+                    placeholder="https://example.com/receipt.jpg"
                     className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">性別</label>
-                  <select
-                    value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-xl text-sm bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                <div className="pt-4 space-y-3">
+                  <button
+                    type="submit"
+                    disabled={savingManual}
+                    className="w-full py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
                   >
-                    <option value="男">男</option>
-                    <option value="女">女</option>
-                  </select>
+                    {savingManual ? '正在登記...' : '確認新增學員'}
+                  </button>
+
+                  {/* Toggle Button for Excel Batch Migration */}
+                  <div className="pt-2 border-t border-gray-100 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowExcelSection(!showExcelSection)}
+                      className="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <span>📥</span>
+                      <span>
+                        {showExcelSection
+                          ? '收合試算表批次匯入區塊'
+                          : '批次試算表遷移 (展開 Excel / CSV 匯入功能)'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
+              </form>
+            </div>
+
+            {/* Collapsible Excel Batch Migration Container */}
+            {showExcelSection && (
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-emerald-200 space-y-5 animate-in fade-in duration-200">
+                <div className="border-b pb-3">
+                  <h3 className="text-lg font-bold text-emerald-900">試算表批次遷移匯入</h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    支援欄位：學生編號 (選填), 中文姓名, 英文姓名, 就讀學校, 性別, 聯絡電話, 班別代碼, 付款情況
+                  </p>
+                </div>
+
+                {/* File input */}
                 <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">
-                    聯絡電話 (香港 8 位號碼) <span className="text-rose-600">*</span>
-                  </label>
+                  <label className="block text-xs font-bold text-gray-800 mb-2">選擇上傳檔案</label>
                   <input
-                    type="tel"
-                    required
-                    maxLength={8}
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    placeholder="例如：91234567"
-                    className="w-full px-3 py-2 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleExcelUpload}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-800 mb-1">就讀學校</label>
-                <input
-                  type="text"
-                  value={formData.school}
-                  onChange={(e) => setFormData({ ...formData, school: e.target.value })}
-                  placeholder="例如：拔萃男書院"
-                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                />
-              </div>
+                {/* Parsed Preview Table */}
+                {excelRows.length > 0 && (
+                  <div className="space-y-4 pt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-bold text-gray-800">
+                        檔案預覽：{excelFileName} (共 {excelRows.length} 筆資料)
+                      </span>
+                      {excelRows.some((r) => r.validationError) && (
+                        <span className="text-xs text-rose-700 font-bold bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+                          發現欄位格式未符規範
+                        </span>
+                      )}
+                    </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">
-                    所屬班別 <span className="text-rose-600">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formData.class_code}
-                    onChange={(e) => setFormData({ ...formData, class_code: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-xl text-sm bg-white font-mono focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                  >
-                    <option value="">請選擇班別代碼</option>
-                    {classList.map((c) => (
-                      <option key={c.class_code} value={c.class_code}>
-                        {c.class_code} ({c.class_name})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">繳費情況</label>
-                  <select
-                    value={formData.payment_status}
-                    onChange={(e) => setFormData({ ...formData, payment_status: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-xl text-sm bg-white focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                  >
-                    <option value="no">未付款 (no)</option>
-                    <option value="yes">已付款 (yes)</option>
-                  </select>
-                </div>
-              </div>
+                    <div className="overflow-x-auto max-h-80 border border-gray-200 rounded-xl">
+                      <table className="min-w-full divide-y divide-gray-200 text-xs text-left">
+                        <thead className="bg-gray-100 text-gray-700 sticky top-0 font-bold">
+                          <tr>
+                            <th className="p-2.5">列號</th>
+                            <th className="p-2.5">學員編號</th>
+                            <th className="p-2.5">學員姓名</th>
+                            <th className="p-2.5">性別</th>
+                            <th className="p-2.5">學校</th>
+                            <th className="p-2.5">電話</th>
+                            <th className="p-2.5">班別代碼</th>
+                            <th className="p-2.5">付款情況</th>
+                            <th className="p-2.5">驗證狀態</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {excelRows.map((r, i) => (
+                            <tr key={i} className={r.validationError ? 'bg-rose-50/70' : 'hover:bg-gray-50'}>
+                              <td className="p-2.5 font-mono text-gray-400">#{r.rowNum}</td>
+                              <td className="p-2.5 font-mono text-gray-600">{r.student_code || '(自動遞增)'}</td>
+                              <td className="p-2.5 font-bold text-gray-900">
+                                {r.chinese_name} {r.english_name ? `(${r.english_name})` : ''}
+                              </td>
+                              <td className="p-2.5">{r.gender}</td>
+                              <td className="p-2.5">{r.school || '-'}</td>
+                              <td className="p-2.5 font-mono">{r.phone}</td>
+                              <td className="p-2.5 font-mono font-bold text-purple-700">{r.class_code}</td>
+                              <td className="p-2.5">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
+                                    r.payment_status === 'yes'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-gray-100 text-gray-600'
+                                  }`}
+                                >
+                                  {r.payment_status === 'yes' ? '已付款' : '未付款'}
+                                </span>
+                              </td>
+                              <td className="p-2.5 font-medium">
+                                {r.validationError ? (
+                                  <span className="text-rose-600 font-bold">❌ {r.validationError}</span>
+                                ) : (
+                                  <span className="text-emerald-600 font-semibold">✓ 通過</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-800 mb-1">收據連結</label>
-                <input
-                  type="url"
-                  value={formData.receipt_url}
-                  onChange={(e) => setFormData({ ...formData, receipt_url: e.target.value })}
-                  placeholder="https://example.com/receipt.jpg"
-                  className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-purple-600 focus:outline-none"
-                />
+                    {/* Batch Submission Button */}
+                    <button
+                      type="button"
+                      disabled={savingExcel}
+                      onClick={handleConfirmBatchMigrate}
+                      className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
+                    >
+                      {savingExcel ? '正在寫入資料庫...' : '確認批次寫入資料庫'}
+                    </button>
+                  </div>
+                )}
               </div>
-
-              <div className="pt-4 space-y-3">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="w-full py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
-                >
-                  {saving ? '正在登記...' : '確認單筆新增'}
-                </button>
-
-                {/* Batch Migration Button */}
-                <div className="pt-2 border-t border-gray-100 text-center">
-                  <Link
-                    href="/import/excel"
-                    className="inline-flex items-center justify-center w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold rounded-xl text-sm transition"
-                  >
-                    📥 批次試算表遷移 (Batch Migration via Excel / CSV)
-                  </Link>
-                </div>
-              </div>
-            </form>
+            )}
           </div>
         )}
       </div>
