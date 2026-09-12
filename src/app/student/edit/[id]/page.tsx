@@ -34,8 +34,8 @@ export default function EditStudentPage() {
   const router = useRouter();
   const studentCode = params?.id as string;
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
   const [availableClasses, setAvailableClasses] = useState<ClassOption[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
@@ -60,7 +60,6 @@ export default function EditStudentPage() {
       setGeneralError(null);
 
       try {
-        // 1. Fetch available classes from database
         const { data: classList, error: classErr } = await supabase
           .from('classes')
           .select('class_code, class_name, lesson_date, duration')
@@ -69,7 +68,6 @@ export default function EditStudentPage() {
         if (classErr) throw classErr;
         setAvailableClasses(classList || []);
 
-        // 2. Fetch student details by ID
         const { data: student, error: studentErr } = await supabase
           .from('students')
           .select('*')
@@ -101,25 +99,34 @@ export default function EditStudentPage() {
     loadData();
   }, [studentCode]);
 
-  // Client-side strict validation
+  const isClassPassed = (lessonDate: string, durationStr: string) => {
+    try {
+      const parts = (durationStr || '').split('-');
+      const endTimeStr = (parts[1] || parts[0] || '23:59').trim();
+      const [endHour, endMin] = endTimeStr.split(':').map((v) => parseInt(v, 10) || 0);
+      const classEnd = new Date(lessonDate);
+      classEnd.setHours(endHour, endMin, 0, 0);
+      return new Date() > classEnd;
+    } catch {
+      return new Date(lessonDate) < new Date();
+    }
+  };
+
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    // Chinese Name Validation
     if (!form.chinese_name.trim()) {
       newErrors.chinese_name = '請輸入中文姓名';
     } else if (!/^[\u4e00-\u9fa5a-zA-Z\s]{2,20}$/.test(form.chinese_name.trim())) {
       newErrors.chinese_name = '中文姓名格式不正確（長度需介乎 2 至 20 字元）';
     }
 
-    // English Name Validation
     if (!form.english_name.trim()) {
       newErrors.english_name = '請輸入英文姓名';
     } else if (!/^[A-Za-z\s'-]{2,40}$/.test(form.english_name.trim())) {
       newErrors.english_name = '英文姓名只可包含英文字母、空格或連字號';
     }
 
-    // Phone Validation (Hong Kong 8-digit mobile standard)
     const cleanPhone = form.phone.replace(/[\s-]/g, '');
     if (!cleanPhone) {
       newErrors.phone = '請輸入聯絡電話';
@@ -127,17 +134,10 @@ export default function EditStudentPage() {
       newErrors.phone = '請填寫有效的 8 位香港電話號碼（例如：91234567）';
     }
 
-    // Class Code Validation against database records
     if (!form.class_code) {
-      newErrors.class_code = '請選擇分配班別';
-    } else if (
-      availableClasses.length > 0 &&
-      !availableClasses.some((c) => c.class_code === form.class_code)
-    ) {
-      newErrors.class_code = '所選班別代碼不存在於資料庫中，請重新選擇';
+      newErrors.class_code = '請選擇所屬堂別時段';
     }
 
-    // Receipt URL Validation
     if (form.receipt_url.trim()) {
       try {
         const parsedUrl = new URL(form.receipt_url.trim());
@@ -154,10 +154,8 @@ export default function EditStudentPage() {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    const val = type === 'checkbox' ? (e.target as HTMLInputElement).checked : value;
-
-    setForm((prev) => ({ ...prev, [name]: val }));
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
       setErrors((prev) => {
         const next = { ...prev };
@@ -235,15 +233,14 @@ export default function EditStudentPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500">
         <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mb-3"></div>
-        <span>正在載入學員資料與班別清單...</span>
+        <span>正在載入學員資料與排堂清單...</span>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-        {/* Header with enlarged ID */}
+      <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
         <div className="flex items-start justify-between pb-5 mb-6 border-b border-gray-100">
           <div>
             <h1 className="text-2xl font-black text-gray-900">修改學員資料</h1>
@@ -262,7 +259,6 @@ export default function EditStudentPage() {
           </Link>
         </div>
 
-        {/* Diagnostic Banner */}
         {generalError && (
           <div className="p-4 mb-6 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium flex items-start gap-2">
             <span>⚠️</span>
@@ -270,189 +266,283 @@ export default function EditStudentPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-          {/* Chinese & English Names */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-8" noValidate>
+          {/* SECTION 1 */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+              <div className="w-2 h-4 bg-purple-700 rounded-full"></div>
+              <h2 className="text-base font-bold text-gray-900">第一部分：學生個人資料</h2>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-800 mb-1">
+                  中文姓名 <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="chinese_name"
+                  value={form.chinese_name}
+                  onChange={handleChange}
+                  placeholder="例如：黃子健"
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
+                    errors.chinese_name
+                      ? 'border-rose-400 bg-rose-50/30'
+                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                  }`}
+                />
+                {errors.chinese_name && (
+                  <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.chinese_name}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-800 mb-1">
+                  英文姓名 <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="english_name"
+                  value={form.english_name}
+                  onChange={handleChange}
+                  placeholder="例如：Lucas"
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
+                    errors.english_name
+                      ? 'border-rose-400 bg-rose-50/30'
+                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                  }`}
+                />
+                {errors.english_name && (
+                  <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.english_name}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-800 mb-1">
+                  性別 <span className="text-rose-600">*</span>
+                </label>
+                <select
+                  name="gender"
+                  value={form.gender}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600"
+                >
+                  <option value="男">男</option>
+                  <option value="女">女</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-800 mb-1">
+                  聯絡電話 (香港手機) <span className="text-rose-600">*</span>
+                </label>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={form.phone}
+                  onChange={handleChange}
+                  placeholder="例如：98765432"
+                  maxLength={8}
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
+                    errors.phone
+                      ? 'border-rose-400 bg-rose-50/30'
+                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                  }`}
+                />
+                {errors.phone && (
+                  <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.phone}</p>
+                )}
+              </div>
+            </div>
+
             <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                中文姓名 <span className="text-rose-600">*</span>
-              </label>
+              <label className="block text-sm font-bold text-gray-800 mb-1">就讀學校</label>
               <input
                 type="text"
-                name="chinese_name"
-                value={form.chinese_name}
+                name="school"
+                value={form.school}
                 onChange={handleChange}
-                placeholder="例如：黃子健"
-                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                  errors.chinese_name
-                    ? 'border-rose-400 bg-rose-50/30 focus:ring-2 focus:ring-rose-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
-                }`}
+                placeholder="例如：喇沙小學"
+                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
               />
-              {errors.chinese_name && (
-                <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.chinese_name}</p>
-              )}
+            </div>
+          </section>
+
+          {/* SECTION 2 */}
+          <section className="space-y-4 pt-2">
+            <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+              <div className="w-2 h-4 bg-emerald-600 rounded-full"></div>
+              <h2 className="text-base font-bold text-gray-900">第二部分：繳費及收據記錄</h2>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                英文姓名 <span className="text-rose-600">*</span>
-              </label>
-              <input
-                type="text"
-                name="english_name"
-                value={form.english_name}
-                onChange={handleChange}
-                placeholder="例如：Lucas"
-                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                  errors.english_name
-                    ? 'border-rose-400 bg-rose-50/30 focus:ring-2 focus:ring-rose-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
-                }`}
-              />
-              {errors.english_name && (
-                <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.english_name}</p>
-              )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-800 mb-1">
+                  繳費情況 <span className="text-rose-600">*</span>
+                </label>
+                <select
+                  name="payment_status"
+                  value={form.payment_status}
+                  onChange={handleChange}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600 font-medium"
+                >
+                  <option value="no">未付款 (no)</option>
+                  <option value="yes">已付款 (yes)</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-bold text-gray-800">收據連結</label>
+                  {form.receipt_url && (
+                    <a
+                      href={form.receipt_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-purple-600 underline font-semibold hover:text-purple-800"
+                    >
+                      開啟預覽
+                    </a>
+                  )}
+                </div>
+                <input
+                  type="url"
+                  name="receipt_url"
+                  value={form.receipt_url}
+                  onChange={handleChange}
+                  placeholder="https://example.com/receipt.jpg"
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
+                    errors.receipt_url
+                      ? 'border-rose-400 bg-rose-50/30'
+                      : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
+                  }`}
+                />
+                {errors.receipt_url && (
+                  <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.receipt_url}</p>
+                )}
+              </div>
             </div>
-          </div>
+          </section>
 
-          {/* Gender & HK Phone */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                性別 <span className="text-rose-600">*</span>
-              </label>
-              <select
-                name="gender"
-                value={form.gender}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600"
-              >
-                <option value="男">男</option>
-                <option value="女">女</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                聯絡電話 (香港 8 位號碼) <span className="text-rose-600">*</span>
-              </label>
-              <input
-                type="tel"
-                name="phone"
-                value={form.phone}
-                onChange={handleChange}
-                placeholder="例如：98765432"
-                maxLength={8}
-                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                  errors.phone
-                    ? 'border-rose-400 bg-rose-50/30 focus:ring-2 focus:ring-rose-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
-                }`}
-              />
-              {errors.phone && (
-                <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.phone}</p>
-              )}
-            </div>
-          </div>
-
-          {/* School */}
-          <div>
-            <label className="block text-sm font-bold text-gray-800 mb-1">就讀學校</label>
-            <input
-              type="text"
-              name="school"
-              value={form.school}
-              onChange={handleChange}
-              placeholder="例如：喇沙小學"
-              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
-            />
-          </div>
-
-          {/* Class Code & Payment */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                班別代碼 (從資料庫查詢) <span className="text-rose-600">*</span>
-              </label>
-              <select
-                name="class_code"
-                value={form.class_code}
-                onChange={handleChange}
-                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm bg-white font-mono focus:outline-none transition ${
-                  errors.class_code
-                    ? 'border-rose-400 bg-rose-50/30 focus:ring-2 focus:ring-rose-400'
-                    : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
-                }`}
-              >
-                <option value="">請選擇班別代碼</option>
-                {availableClasses.map((cls) => (
-                  <option key={cls.class_code} value={cls.class_code}>
-                    {cls.class_code} ({cls.duration || cls.class_name})
-                  </option>
-                ))}
-              </select>
-              {errors.class_code && (
-                <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.class_code}</p>
-              )}
+          {/* SECTION 3 */}
+          <section className="space-y-4 pt-2">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-4 bg-indigo-600 rounded-full"></div>
+                <h2 className="text-base font-bold text-gray-900">第三部分：課堂報讀與出席紀錄</h2>
+              </div>
+              <span className="text-xs text-gray-400">依日期先後排序</span>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                繳費情況 <span className="text-rose-600">*</span>
-              </label>
-              <select
-                name="payment_status"
-                value={form.payment_status}
-                onChange={handleChange}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600"
-              >
-                <option value="no">未付款 (no)</option>
-                <option value="yes">已付款 (yes)</option>
-              </select>
+            <div className="flex flex-wrap gap-4 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
+                <span className="text-gray-700 font-medium">綠色：已出席 或 未來堂別</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-rose-600 inline-block"></span>
+                <span className="text-gray-700 font-medium">紅色：已過期未出席 (缺席)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-full bg-gray-400 opacity-50 inline-block"></span>
+                <span className="text-gray-700 font-medium">半透明淡化：歷史過去時段</span>
+              </div>
             </div>
-          </div>
 
-          {/* Receipt URL */}
-          <div>
-            <label className="block text-sm font-bold text-gray-800 mb-1">收據連結</label>
-            <input
-              type="url"
-              name="receipt_url"
-              value={form.receipt_url}
-              onChange={handleChange}
-              placeholder="https://example.com/receipt.jpg"
-              className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition ${
-                errors.receipt_url
-                  ? 'border-rose-400 bg-rose-50/30 focus:ring-2 focus:ring-rose-400'
-                  : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
-              }`}
-            />
-            {errors.receipt_url && (
-              <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.receipt_url}</p>
+            {errors.class_code && (
+              <p className="text-xs text-rose-600 font-semibold">{errors.class_code}</p>
             )}
-          </div>
 
-          {/* Attendance Checkbox */}
-          <div className="flex items-center pt-2">
-            <input
-              id="attendance_status"
-              type="checkbox"
-              name="attendance_status"
-              checked={form.attendance_status}
-              onChange={handleChange}
-              className="w-5 h-5 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
-            />
-            <label
-              htmlFor="attendance_status"
-              className="ml-2.5 text-sm font-bold text-gray-700 select-none cursor-pointer"
-            >
-              出席簽到 (Checked = Present)
-            </label>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {availableClasses.map((cls) => {
+                const isSelected = form.class_code === cls.class_code;
+                const isPassed = isClassPassed(cls.lesson_date, cls.duration);
+                const attended = isSelected ? form.attendance_status : false;
+                const isGreen = !isPassed || attended;
 
-          {/* Split Action Buttons */}
-          <div className="flex gap-3 mt-6">
+                return (
+                  <button
+                    key={cls.class_code}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setForm((prev) => ({ ...prev, attendance_status: !prev.attendance_status }));
+                      } else {
+                        setForm((prev) => ({
+                          ...prev,
+                          class_code: cls.class_code,
+                          attendance_status: false,
+                        }));
+                      }
+                      if (errors.class_code) {
+                        setErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.class_code;
+                          return next;
+                        });
+                      }
+                    }}
+                    className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between relative cursor-pointer ${
+                      isPassed ? 'opacity-65 grayscale-[25%]' : 'opacity-100'
+                    } ${
+                      isSelected
+                        ? isGreen
+                          ? 'bg-emerald-600 border-emerald-700 text-white shadow-md ring-2 ring-emerald-400'
+                          : 'bg-rose-600 border-rose-700 text-white shadow-md ring-2 ring-rose-400'
+                        : 'bg-white border-gray-200 hover:border-gray-400 text-gray-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span
+                        className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                          isSelected
+                            ? 'bg-white/20 text-white'
+                            : 'bg-purple-50 text-purple-700 border border-purple-200'
+                        }`}
+                      >
+                        {cls.class_code}
+                      </span>
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          isSelected
+                            ? 'bg-white/25 text-white'
+                            : isPassed
+                            ? 'bg-gray-100 text-gray-500'
+                            : 'bg-emerald-50 text-emerald-700'
+                        }`}
+                      >
+                        {isSelected
+                          ? isPassed
+                            ? attended
+                              ? '✓ 已出席'
+                              : '✕ 缺席 (點擊變更)'
+                            : '已登記 (報讀中)'
+                          : isPassed
+                          ? '已結束'
+                          : '即將開課'}
+                      </span>
+                    </div>
+
+                    <div className="font-bold text-sm truncate">{cls.class_name}</div>
+                    
+                    <div
+                      className={`text-xs mt-1.5 flex items-center justify-between font-mono ${
+                        isSelected ? 'text-white/90' : 'text-gray-500'
+                      }`}
+                    >
+                      <span>📅 {cls.lesson_date}</span>
+                      <span>⏰ {cls.duration}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* ACTIONS */}
+          <div className="flex gap-3 pt-4 border-t border-gray-100">
             <button
               type="button"
               onClick={handleDelete}

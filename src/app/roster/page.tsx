@@ -32,53 +32,88 @@ interface ClassItem {
 }
 
 export default function RosterPage() {
-  const [selectedDate, setSelectedDate] = useState('2026-09-09');
-  const [selectedSession, setSelectedSession] = useState('ALL');
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedSession, setSelectedSession] = useState<string>('ALL');
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Fetch classes and matching enrolled students by selected date
-  const fetchData = async (dateStr: string) => {
-    setLoading(true);
-    try {
-      const { data: classData, error: classError } = await supabase
-        .from('classes')
-        .select('*')
-        .eq('lesson_date', dateStr);
-
-      if (classError) throw classError;
-      setClasses(classData || []);
-
-      if (classData && classData.length > 0) {
-        const classCodes = classData.map((c) => c.class_code);
-        const { data: studentData, error: studentError } = await supabase
-          .from('students')
-          .select('*')
-          .in('class_code', classCodes);
-
-        if (studentError) throw studentError;
-        setStudents(studentData || []);
-      } else {
-        setStudents([]);
-      }
-    } catch (err: any) {
-      console.error('Error loading roster data:', err.message || err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 1. Initial load: Fetch all distinct class dates from the classes table
   useEffect(() => {
-    fetchData(selectedDate);
+    const fetchAvailableDates = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('classes')
+          .select('lesson_date')
+          .order('lesson_date', { ascending: false });
+
+        if (error) throw error;
+
+        const uniqueDates = Array.from(
+          new Set((data || []).map((c) => c.lesson_date).filter(Boolean))
+        ) as string[];
+
+        setAvailableDates(uniqueDates);
+
+        // Auto-select the first available date if not set
+        if (uniqueDates.length > 0) {
+          setSelectedDate(uniqueDates[0]);
+        }
+      } catch (err: any) {
+        console.error('Error fetching available class dates:', err.message || err);
+      }
+    };
+
+    fetchAvailableDates();
+  }, []);
+
+  // 2. Fetch classes and students whenever selectedDate changes
+  useEffect(() => {
+    if (!selectedDate) return;
+
+    const fetchDataForDate = async () => {
+      setLoading(true);
+      // Automatically reset session filter to 'ALL' whenever date changes
+      setSelectedSession('ALL');
+
+      try {
+        const { data: classData, error: classError } = await supabase
+          .from('classes')
+          .select('*')
+          .eq('lesson_date', selectedDate);
+
+        if (classError) throw classError;
+        setClasses(classData || []);
+
+        if (classData && classData.length > 0) {
+          const classCodes = classData.map((c) => c.class_code);
+          const { data: studentData, error: studentError } = await supabase
+            .from('students')
+            .select('*')
+            .in('class_code', classCodes);
+
+          if (studentError) throw studentError;
+          setStudents(studentData || []);
+        } else {
+          setStudents([]);
+        }
+      } catch (err: any) {
+        console.error('Error loading roster data:', err.message || err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDataForDate();
   }, [selectedDate]);
 
-  // Derive distinct duration time slots for current classes
+  // Derive distinct session durations for classes on the chosen date
   const sessionOptions = useMemo(() => {
     return Array.from(new Set(classes.map((c) => c.duration))).filter(Boolean);
   }, [classes]);
 
-  // Filter students based on chosen session
+  // Filter students based on selected session
   const filteredStudents = useMemo(() => {
     if (selectedSession === 'ALL') return students;
     const targetCodes = classes
@@ -87,14 +122,14 @@ export default function RosterPage() {
     return students.filter((s) => targetCodes.includes(s.class_code));
   }, [students, classes, selectedSession]);
 
-  // Calculate live gender distribution and headcounts
+  // Gender & enrollment metrics
   const stats = useMemo(() => {
     const boys = filteredStudents.filter((s) => s.gender === '男').length;
     const girls = filteredStudents.filter((s) => s.gender === '女').length;
     return { boys, girls, total: filteredStudents.length };
   }, [filteredStudents]);
 
-  // Toggle payment status
+  // Inline toggle for payment status
   const handlePaymentToggle = async (studentCode: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'yes' ? 'no' : 'yes';
     setStudents((prev) =>
@@ -108,11 +143,10 @@ export default function RosterPage() {
 
     if (error) {
       console.error('Failed to update payment status:', error.message);
-      fetchData(selectedDate);
     }
   };
 
-  // Toggle attendance status
+  // Inline toggle for attendance status
   const handleAttendanceToggle = async (studentCode: string, currentStatus: boolean) => {
     const nextStatus = !currentStatus;
     setStudents((prev) =>
@@ -126,11 +160,9 @@ export default function RosterPage() {
 
     if (error) {
       console.error('Failed to update attendance:', error.message);
-      fetchData(selectedDate);
     }
   };
 
-  // Format WhatsApp Click-to-Chat Link (Default HK prefix 852)
   const getWhatsAppLink = (phone: string, studentName: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
@@ -144,55 +176,67 @@ export default function RosterPage() {
         {/* Navigation & Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">課堂點名名冊</h1>
+            <h1 className="text-2xl font-black text-gray-900">課堂點名名冊</h1>
             <p className="text-sm text-gray-500 mt-1">即時學員簽到、繳費確認、資料修改與 WhatsApp 聯絡</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/classes"
-              className="inline-flex items-center justify-center px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
+              className="inline-flex items-center justify-center px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-semibold rounded-xl shadow-sm transition"
             >
               課程管理
             </Link>
             <Link
               href="/import/excel"
-              className="inline-flex items-center justify-center px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
+              className="inline-flex items-center justify-center px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl shadow-sm transition"
             >
               Excel 遷移
             </Link>
             <Link
               href="/import"
-              className="inline-flex items-center justify-center px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-medium rounded-lg shadow-sm transition"
+              className="inline-flex items-center justify-center px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-semibold rounded-xl shadow-sm transition"
             >
               + 匯入學員
             </Link>
           </div>
         </div>
 
-        {/* Filters & Demographic Counter */}
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 mb-6">
+        {/* Dynamic Filters & Date Dropdown */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Class Date Dropdown */}
             <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
-                上課日期 (Select Date)
+              <label className="block text-sm font-bold text-gray-800 mb-1.5">
+                上課日期 (選擇開課日期)
               </label>
-              <input
-                type="date"
+              <select
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm"
-              />
+                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm bg-white font-medium text-gray-800"
+              >
+                {availableDates.length === 0 ? (
+                  <option value="">暫無任何排課日期</option>
+                ) : (
+                  availableDates.map((date) => (
+                    <option key={date} value={date}>
+                      {date}
+                    </option>
+                  ))
+                )}
+              </select>
             </div>
+
+            {/* Automatically Synced Session Dropdown */}
             <div>
-              <label className="block text-sm font-bold text-gray-800 mb-1">
+              <label className="block text-sm font-bold text-gray-800 mb-1.5">
                 堂別時段 (Session)
               </label>
               <select
                 value={selectedSession}
                 onChange={(e) => setSelectedSession(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm bg-white"
+                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-600 focus:outline-none text-sm bg-white font-medium text-gray-800"
               >
-                <option value="ALL">全部堂別 (All Sessions)</option>
+                <option value="ALL">全部堂別時段 (All Sessions)</option>
                 {sessionOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
@@ -202,17 +246,18 @@ export default function RosterPage() {
             </div>
           </div>
 
+          {/* Demographic Counter Bar */}
           <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between text-sm text-gray-600">
             <div>
               <span className="font-bold text-gray-800">名冊統計：</span> {stats.boys} 男 / {stats.girls} 女 
               <span className="font-bold text-purple-700 ml-1.5">(共 {stats.total} 人)</span>
             </div>
-            {loading && <span className="text-purple-600 font-medium animate-pulse">資料載入中...</span>}
+            {loading && <span className="text-purple-600 font-medium animate-pulse">資料讀取中...</span>}
           </div>
         </div>
 
         {/* Student Table */}
-        <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-purple-700 text-white">
               <tr>
@@ -231,7 +276,7 @@ export default function RosterPage() {
               {filteredStudents.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-gray-400">
-                    {loading ? '正在讀取記錄...' : '當日無指定學生記錄'}
+                    {loading ? '正在讀取名冊記錄...' : '所選日期及時段暫無學生報名記錄'}
                   </td>
                 </tr>
               ) : (
@@ -275,7 +320,7 @@ export default function RosterPage() {
                         href={getWhatsAppLink(student.phone, student.chinese_name)}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-blue-600 hover:text-blue-800 flex items-center gap-1 font-mono"
+                        className="text-blue-600 hover:text-blue-800 flex items-center gap-1 font-mono font-semibold"
                       >
                         <span>{student.phone}</span>
                       </a>
@@ -293,7 +338,7 @@ export default function RosterPage() {
                     <td className="px-4 py-3 text-center">
                       <Link
                         href={`/student/edit/${student.student_code}`}
-                        className="text-xs text-purple-700 hover:text-purple-900 font-bold underline px-2.5 py-1 bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 transition"
+                        className="text-xs text-purple-700 hover:text-purple-900 font-bold underline px-2.5 py-1 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition"
                       >
                         編輯
                       </Link>
