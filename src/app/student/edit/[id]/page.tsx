@@ -85,7 +85,7 @@ export default function EditStudentPage() {
           .single();
 
         if (studentErr || !student) {
-          throw new Error('找不到該學生資料或編號無效。');
+          throw new Error('找不到該學員資料或編號無效。');
         }
 
         setForm({
@@ -128,12 +128,10 @@ export default function EditStudentPage() {
     if (!form.chinese_name.trim()) {
       newErrors.chinese_name = '請輸入中文姓名';
     } else if (!/^[\u4e00-\u9fa5a-zA-Z\s]{2,20}$/.test(form.chinese_name.trim())) {
-      newErrors.chinese_name = '中文姓名格式不正確（長度需介乎 2 至 20 字元）';
+      newErrors.chinese_name = '中文姓名格式不符（長度需介乎 2 至 20 字元）';
     }
 
-    if (!form.english_name.trim()) {
-      newErrors.english_name = '請輸入英文姓名';
-    } else if (!/^[A-Za-z\s'-]{2,40}$/.test(form.english_name.trim())) {
+    if (form.english_name.trim() && !/^[A-Za-z\s'-]{2,40}$/.test(form.english_name.trim())) {
       newErrors.english_name = '英文姓名只可包含英文字母、空格或連字號';
     }
 
@@ -155,7 +153,7 @@ export default function EditStudentPage() {
           newErrors.receipt_url = '收據網址必須以 http:// 或 https:// 開頭';
         }
       } catch {
-        newErrors.receipt_url = '請輸入有效的網址格式（例如：https://...）';
+        newErrors.receipt_url = '請輸入正確的網址格式';
       }
     }
 
@@ -179,7 +177,10 @@ export default function EditStudentPage() {
     e.preventDefault();
     setGeneralError(null);
 
-    if (!validate()) return;
+    if (!validate()) {
+      setGeneralError('表單資料填寫有誤，請檢查下方各欄位的紅色提示。');
+      return;
+    }
     setSaving(true);
 
     try {
@@ -200,7 +201,7 @@ export default function EditStudentPage() {
 
       if (error) {
         if (error.message.includes('unique_student_per_class')) {
-          throw new Error('更新失敗：此學員或電話已在該班級登記，不可重複報讀。');
+          throw new Error('更新失敗：此學員或電話已在該班別登記，不可重複報讀。');
         }
         throw error;
       }
@@ -225,7 +226,6 @@ export default function EditStudentPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-        {/* Header */}
         <div className="pb-5 mb-6 border-b border-gray-100">
           <h1 className="text-2xl font-black text-gray-900">修改學員資料</h1>
           <div className="mt-2 flex items-center gap-2">
@@ -244,7 +244,7 @@ export default function EditStudentPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-8" noValidate>
-          {/* SECTION 1: 學生個人資料 */}
+          {/* 第一部分：學生個人資料 */}
           <section className="space-y-4">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
               <div className="w-2 h-4 bg-purple-700 rounded-full"></div>
@@ -272,9 +272,7 @@ export default function EditStudentPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">
-                  英文姓名 <span className="text-rose-600">*</span>
-                </label>
+                <label className="block text-sm font-bold text-gray-800 mb-1">英文姓名</label>
                 <input
                   type="text"
                   name="english_name"
@@ -293,9 +291,7 @@ export default function EditStudentPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">
-                  性別 <span className="text-rose-600">*</span>
-                </label>
+                <label className="block text-sm font-bold text-gray-800 mb-1">性別</label>
                 <select
                   name="gender"
                   value={form.gender}
@@ -341,7 +337,7 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* SECTION 2: 繳費情況與收據 */}
+          {/* 第二部分：繳費及收據記錄 */}
           <section className="space-y-4 pt-2">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
               <div className="w-2 h-4 bg-emerald-600 rounded-full"></div>
@@ -350,17 +346,15 @@ export default function EditStudentPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold text-gray-800 mb-1">
-                  繳費情況 <span className="text-rose-600">*</span>
-                </label>
+                <label className="block text-sm font-bold text-gray-800 mb-1">繳費情況</label>
                 <select
                   name="payment_status"
                   value={form.payment_status}
                   onChange={handleChange}
                   className="w-full px-3.5 py-2.5 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600 font-medium"
                 >
-                  <option value="no">未付款 (no)</option>
-                  <option value="yes">已付款 (yes)</option>
+                  <option value="no">未付款</option>
+                  <option value="yes">已付款</option>
                 </select>
               </div>
 
@@ -395,7 +389,7 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* SECTION 3: 課堂報讀與出席紀錄 (Vertical Chronological Order) */}
+          {/* 第三部分：課堂報讀與出席紀錄 (直列時序按鈕，綠色按鈕直接跳轉至分班指派) */}
           <section className="space-y-4 pt-2">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <div className="flex items-center gap-2">
@@ -408,7 +402,7 @@ export default function EditStudentPage() {
             <div className="flex flex-wrap gap-4 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">綠色：有效課堂（點擊進入分班指派）</span>
+                <span className="text-gray-700 font-medium">綠色：有效課堂（點擊前往分班指派）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-rose-600 inline-block"></span>
@@ -440,7 +434,7 @@ export default function EditStudentPage() {
 
                 const handleSessionClick = () => {
                   if (buttonState === 'active') {
-                    router.push(`/classes?tab=assignment&student=${encodeURIComponent(studentCode)}`);
+                    router.push(`/classes?student=${encodeURIComponent(studentCode)}`);
                   }
                 };
 
@@ -514,7 +508,7 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* Submission and Relocated Cancel Action */}
+          {/* 儲存變更與取消返回 */}
           <div className="space-y-3 pt-4 border-t border-gray-100">
             <button
               type="submit"

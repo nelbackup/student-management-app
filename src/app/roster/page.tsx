@@ -41,7 +41,6 @@ export default function RosterPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // 1. Fetch available classes sorted chronologically
   useEffect(() => {
     const fetchAvailableClasses = async () => {
       try {
@@ -68,14 +67,12 @@ export default function RosterPage() {
     fetchAvailableClasses();
   }, []);
 
-  // Chronological distinct dates
   const availableDates = useMemo(() => {
     return Array.from(new Set(allClasses.map((c) => c.lesson_date)))
       .filter(Boolean)
       .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   }, [allClasses]);
 
-  // Chronological distinct sessions for current date
   const availableSessions = useMemo(() => {
     if (!selectedDate) return [];
     const dateClasses = allClasses.filter((c) => c.lesson_date === selectedDate);
@@ -88,7 +85,6 @@ export default function RosterPage() {
       });
   }, [allClasses, selectedDate]);
 
-  // 2. Fetch enrolled students when selectedDate changes
   useEffect(() => {
     if (!selectedDate) return;
 
@@ -123,7 +119,6 @@ export default function RosterPage() {
     fetchStudents();
   }, [selectedDate, allClasses]);
 
-  // Filter students by selected session
   const filteredStudents = useMemo(() => {
     if (selectedSession === '全部堂別') return students;
     const targetCodes = allClasses
@@ -132,7 +127,6 @@ export default function RosterPage() {
     return students.filter((s) => targetCodes.includes(s.class_code));
   }, [students, allClasses, selectedDate, selectedSession]);
 
-  // Derived selected classes info for the Summary Section
   const currentSelectedClasses = useMemo(() => {
     if (!selectedDate) return [];
     if (selectedSession === '全部堂別') {
@@ -143,11 +137,9 @@ export default function RosterPage() {
     );
   }, [allClasses, selectedDate, selectedSession]);
 
-  // Handle Attendance: Once checked, it persists and cannot be unchecked
   const handleAttendanceCheck = async (studentCode: string, isChecked: boolean) => {
-    if (!isChecked) return; // Prevent unchecking
+    if (!isChecked) return;
 
-    // Update state immediately
     setStudents((prev) =>
       prev.map((s) => (s.student_code === studentCode ? { ...s, attendance_status: true } : s))
     );
@@ -159,7 +151,6 @@ export default function RosterPage() {
 
     if (error) {
       console.error('更新簽到狀態失敗:', error.message);
-      // Revert if database failure
       setStudents((prev) =>
         prev.map((s) => (s.student_code === studentCode ? { ...s, attendance_status: false } : s))
       );
@@ -176,11 +167,11 @@ export default function RosterPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Top Header */}
+        {/* 頂部選單 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">課堂點名名冊</h1>
-            <p className="text-sm text-gray-500 mt-1">學員即時簽到、繳費檢視、資料管理與通訊聯絡</p>
+            <p className="text-sm text-gray-500 mt-1">學員即時簽到、繳費核對、資料管理與通訊聯絡</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -198,7 +189,7 @@ export default function RosterPage() {
           </div>
         </div>
 
-        {/* 1. Date & Session Filtering Section */}
+        {/* 篩選下拉選單 */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -238,7 +229,7 @@ export default function RosterPage() {
           </div>
         </div>
 
-        {/* 2. Selected Class Section (中間摘要資訊區塊) */}
+        {/* 所選課堂摘要區塊 */}
         <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between pb-3 border-b border-purple-200/70 mb-3">
             <h2 className="text-sm font-bold text-purple-900 flex items-center gap-2">
@@ -279,7 +270,7 @@ export default function RosterPage() {
           )}
         </div>
 
-        {/* 3. Registered Students Table (Only Attendance Checkbox is Editable) */}
+        {/* 6 欄位點名表格（僅簽到勾選框可操作，勾選後立即轉唯讀） */}
         <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-purple-700 text-white">
@@ -303,7 +294,6 @@ export default function RosterPage() {
               ) : (
                 filteredStudents.map((st) => (
                   <tr key={st.student_code} className="hover:bg-purple-50/40 transition">
-                    {/* 學生名字 (點擊開啟修改頁) */}
                     <td className="px-4 py-3">
                       <Link
                         href={`/student/edit/${st.student_code}`}
@@ -317,14 +307,8 @@ export default function RosterPage() {
                         )}
                       </Link>
                     </td>
-
-                    {/* 性別 (純文字唯讀) */}
                     <td className="px-4 py-3 text-gray-600">{st.gender}</td>
-
-                    {/* 就讀學校 (純文字唯讀) */}
                     <td className="px-4 py-3 text-gray-600">{st.school || '-'}</td>
-
-                    {/* 付款情況 (純中文標籤唯讀) */}
                     <td className="px-4 py-3 text-center">
                       <span
                         className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
@@ -336,8 +320,6 @@ export default function RosterPage() {
                         {st.payment_status === 'yes' ? '已付款' : '未付款'}
                       </span>
                     </td>
-
-                    {/* 收據檢視 (唯讀外部連結) */}
                     <td className="px-4 py-3 text-center">
                       {st.receipt_url ? (
                         <a
@@ -352,8 +334,6 @@ export default function RosterPage() {
                         <span className="text-gray-400 text-xs">無</span>
                       )}
                     </td>
-
-                    {/* 聯絡電話 (WhatsApp 唯讀點擊連結) */}
                     <td className="px-4 py-3 font-mono">
                       <a
                         href={getWhatsAppLink(st.phone, st.chinese_name)}
@@ -364,8 +344,6 @@ export default function RosterPage() {
                         {st.phone}
                       </a>
                     </td>
-
-                    {/* 出席簽到 (一旦勾選即轉為唯讀不可更改) */}
                     <td className="px-4 py-3 text-center">
                       {st.attendance_status ? (
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold select-none cursor-default">

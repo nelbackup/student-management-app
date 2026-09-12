@@ -44,20 +44,24 @@ const defaultForm: ClassRecord = {
 
 function ClassesAdminContent() {
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get('tab') === 'assignment' ? 'assignment' : 'admin';
   const preselectedStudent = searchParams.get('student');
 
-  const [viewTab, setViewTab] = useState<'admin' | 'assignment'>(initialTab);
+  // 只有由修改學員頁面重定向過來（帶有 student 參數）才允許進入分班指派頁籤
+  const isAssignmentAllowed = Boolean(preselectedStudent);
+  const [viewTab, setViewTab] = useState<'admin' | 'assignment'>(
+    isAssignmentAllowed ? 'assignment' : 'admin'
+  );
+
   const [classList, setClassList] = useState<ClassRecord[]>([]);
   const [students, setStudents] = useState<StudentMinimal[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Assignment selection state
+  // 分班選取狀態
   const [selectedClassForAssign, setSelectedClassForAssign] = useState<string | null>(null);
   const [selectedStudentsToAssign, setSelectedStudentsToAssign] = useState<string[]>([]);
   const [assigning, setAssigning] = useState(false);
 
-  // Admin modal state
+  // 課程新增/修改彈窗狀態
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [formData, setFormData] = useState<ClassRecord>(defaultForm);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -127,7 +131,7 @@ function ClassesAdminContent() {
     loadData();
   }, []);
 
-  // Sorted Students: Current pinned on top, others sorted by Chinese name alphabetically
+  // 排序：當前編輯學員置頂，其餘按中文姓名筆劃/拼音排序
   const sortedStudentsForAssignment = useMemo(() => {
     const list = [...students];
     return list.sort((a, b) => {
@@ -215,9 +219,12 @@ function ClassesAdminContent() {
     e.preventDefault();
     setFeedback(null);
 
-    if (!validateForm()) return;
-    setSaving(true);
+    if (!validateForm()) {
+      setFeedback({ type: 'error', message: '課程資料填寫有誤，請依紅色標籤修正。' });
+      return;
+    }
 
+    setSaving(true);
     try {
       if (modalMode === 'create') {
         const { error } = await supabase.from('classes').insert([
@@ -264,12 +271,12 @@ function ClassesAdminContent() {
     setFeedback(null);
 
     if (!selectedClassForAssign) {
-      setFeedback({ type: 'error', message: '請在課程表格勾選目標課堂。' });
+      setFeedback({ type: 'error', message: '請在課程表格中選取目標課堂。' });
       return;
     }
 
     if (selectedStudentsToAssign.length === 0) {
-      setFeedback({ type: 'error', message: '請於學員名單中勾選欲指派的學員。' });
+      setFeedback({ type: 'error', message: '請勾選欲指派的學員。' });
       return;
     }
 
@@ -327,7 +334,7 @@ function ClassesAdminContent() {
 
       setFeedback({
         type: 'success',
-        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫已同步更新！`,
+        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫人數已同步更新！`,
       });
 
       setSelectedStudentsToAssign([]);
@@ -342,24 +349,24 @@ function ClassesAdminContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Top Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* 頂部功能列 */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
           <div>
             <h1 className="text-2xl font-black text-gray-900">課程與堂別中心</h1>
-            <p className="text-sm text-gray-500 mt-1">管理課程詳細資料與學員分班指派作業</p>
+            <p className="text-sm text-gray-500 mt-1">課程詳細管理與學員分班指派作業</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/roster"
               className="px-4 py-2 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl border border-purple-200 transition"
             >
-              返回名冊 (Roster)
+              返回點名名冊
             </Link>
             {viewTab === 'admin' && (
               <button
                 onClick={handleOpenCreate}
-                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-bold rounded-xl shadow-sm transition"
+                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer"
               >
                 + 新增課程
               </button>
@@ -367,40 +374,52 @@ function ClassesAdminContent() {
           </div>
         </div>
 
-        {/* Tab Selector */}
-        <div className="flex border-b border-gray-200 mb-6 bg-white p-1 rounded-2xl shadow-sm">
+        {/* 頁籤選單（若非從學員修改頁重定向，則鎖定並禁用學員分班頁籤） */}
+        <div className="flex border-b border-gray-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
             onClick={() => {
               setViewTab('admin');
               setFeedback(null);
             }}
-            className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${
+            className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
               viewTab === 'admin'
                 ? 'bg-purple-700 text-white shadow'
                 : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
             }`}
           >
-            📋 Class Listing
+            📋 課程詳細清單
           </button>
+
           <button
+            disabled={!isAssignmentAllowed}
             onClick={() => {
-              setViewTab('assignment');
-              setFeedback(null);
+              if (isAssignmentAllowed) {
+                setViewTab('assignment');
+                setFeedback(null);
+              }
             }}
-            className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${
-              viewTab === 'assignment'
+            title={!isAssignmentAllowed ? '請先至「修改學員資料」點選有效課堂按鈕進入分班指派' : ''}
+            className={`flex-1 py-3 text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 ${
+              !isAssignmentAllowed
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-dashed border-gray-300'
+                : viewTab === 'assignment'
                 ? 'bg-purple-700 text-white shadow'
-                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
+                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50 cursor-pointer'
             }`}
           >
-            🎓 Student Class Assignment
+            <span>🎓 學員分班指派</span>
+            {!isAssignmentAllowed && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
+                需由學員修改頁進入
+              </span>
+            )}
           </button>
         </div>
 
-        {/* Feedback Alert */}
+        {/* 頂部摘要反饋橫幅 */}
         {feedback && (
           <div
-            className={`p-4 mb-6 rounded-xl text-sm font-medium border flex items-center gap-2 ${
+            className={`p-4 rounded-xl text-sm font-medium border flex items-center gap-2 ${
               feedback.type === 'success'
                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                 : 'bg-rose-50 text-rose-800 border-rose-200'
@@ -412,7 +431,7 @@ function ClassesAdminContent() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 1: Class Listing (Full classes, suspend button completely removed)     */}
+        {/* 頁籤 A: 課程詳細清單                                                      */}
         {/* ========================================================================= */}
         {viewTab === 'admin' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
@@ -495,18 +514,18 @@ function ClassesAdminContent() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 2: Student Class Assignment                                           */}
+        {/* 頁籤 B: 學員分班指派 (僅限由學員頁重定向進入)                              */}
         {/* ========================================================================= */}
-        {viewTab === 'assignment' && (
+        {viewTab === 'assignment' && isAssignmentAllowed && (
           <div className="space-y-6">
             <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl">
-              <h2 className="text-sm font-bold text-purple-900">分班指派作業流程</h2>
+              <h2 className="text-sm font-bold text-purple-900">分班指派作業說明</h2>
               <p className="text-xs text-purple-700 mt-0.5">
-                步驟 1：勾選目標課堂 ➔ 步驟 2：從下表勾選學員（當前編輯學員置頂，其餘按中文姓名排序） ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
+                步驟 1：勾選目標課堂 ➔ 步驟 2：確認下方學員（當前編輯學員已自動置頂） ➔ 步驟 3：在底部點擊「確認儲存學員分班指派」
               </p>
             </div>
 
-            {/* Target Classes Selection Table */}
+            {/* 可選班別清單 */}
             <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
                 <thead className="bg-purple-700 text-white text-xs font-semibold uppercase">
@@ -583,12 +602,12 @@ function ClassesAdminContent() {
               </table>
             </div>
 
-            {/* Student Assignment List with Dedicated Column Headers */}
+            {/* 學員指派名冊（已報名其他班別的學員勾選框轉為唯讀鎖定，無任何超連結） */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
                 <div>
                   <h3 className="text-base font-bold text-gray-900">
-                    現有名單學員 (Current & Enrolled Students)
+                    現有名單學員
                     {selectedClassForAssign && (
                       <span className="text-purple-700 font-mono ml-2">
                         ➔ 目標堂別: {selectedClassForAssign}
@@ -600,26 +619,13 @@ function ClassesAdminContent() {
                     {selectedClassForAssign && `（目標班別剩餘學額: ${remainingQuota} 席）`}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedStudentsToAssign.length === students.length) {
-                      setSelectedStudentsToAssign([]);
-                    } else {
-                      setSelectedStudentsToAssign(students.map((s) => s.student_code));
-                    }
-                  }}
-                  className="text-xs text-purple-700 hover:text-purple-900 font-bold underline cursor-pointer"
-                >
-                  {selectedStudentsToAssign.length === students.length ? '取消全選' : '全選所有學員'}
-                </button>
               </div>
 
               <div className="overflow-x-auto max-h-96 overflow-y-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
                   <thead className="bg-gray-100 text-gray-700 text-xs font-bold uppercase sticky top-0 z-10">
                     <tr>
-                      <th className="px-4 py-3 text-center w-16">選取</th>
+                      <th className="px-4 py-3 text-center w-24">選取狀態</th>
                       <th className="px-4 py-3">學員姓名</th>
                       <th className="px-4 py-3">學員編號</th>
                       <th className="px-4 py-3">流動電話</th>
@@ -629,56 +635,65 @@ function ClassesAdminContent() {
                     {sortedStudentsForAssignment.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="py-8 text-center text-gray-400 text-xs">
-                          無可分配學員記錄
+                          無學員記錄
                         </td>
                       </tr>
                     ) : (
                       sortedStudentsForAssignment.map((st) => {
+                        const isCurrentTarget = st.student_code === preselectedStudent;
                         const isChecked = selectedStudentsToAssign.includes(st.student_code);
-                        const isCurrentActiveStudent = st.student_code === preselectedStudent;
+                        // 若已報讀班別且非當前欲編輯調配之學員，鎖定為唯讀狀態
+                        const isLockedRegistered = Boolean(st.class_code && !isCurrentTarget);
 
                         return (
                           <tr
                             key={st.student_code}
-                            onClick={() => {
-                              setSelectedStudentsToAssign((prev) =>
-                                isChecked
-                                  ? prev.filter((id) => id !== st.student_code)
-                                  : [...prev, st.student_code]
-                              );
-                            }}
-                            className={`cursor-pointer transition ${
-                              isCurrentActiveStudent
+                            className={`transition ${
+                              isCurrentTarget
                                 ? 'bg-amber-50/70 border-l-4 border-l-amber-500'
+                                : isLockedRegistered
+                                ? 'bg-gray-50/80 text-gray-400'
                                 : isChecked
                                 ? 'bg-purple-50/60'
                                 : 'hover:bg-gray-50'
                             }`}
                           >
-                            <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedStudentsToAssign((prev) => [...prev, st.student_code]);
-                                  } else {
-                                    setSelectedStudentsToAssign((prev) =>
-                                      prev.filter((id) => id !== st.student_code)
-                                    );
-                                  }
-                                }}
-                                className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
-                              />
+                            <td className="px-4 py-3 text-center">
+                              {isLockedRegistered ? (
+                                <div className="inline-flex items-center justify-center text-gray-400" title="該學員已登記其他班別，不可重複指派">
+                                  <span className="text-xs">🔒 唯讀</span>
+                                </div>
+                              ) : (
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedStudentsToAssign((prev) => [...prev, st.student_code]);
+                                    } else {
+                                      setSelectedStudentsToAssign((prev) =>
+                                        prev.filter((id) => id !== st.student_code)
+                                      );
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                                />
+                              )}
                             </td>
+                            {/* 純文字顯示，不包含任何外部或跳轉超連結 */}
                             <td className="px-4 py-3 font-bold text-gray-900">
                               <div className="flex items-center gap-2">
                                 <span>
                                   {st.chinese_name} {st.english_name ? `(${st.english_name})` : ''}
                                 </span>
-                                {isCurrentActiveStudent && (
+                                {isCurrentTarget && (
                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">
                                     當前編輯學員
+                                  </span>
+                                )}
+                                {isLockedRegistered && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded bg-gray-200 text-gray-600 font-mono">
+                                    已屬: {st.class_code}
                                   </span>
                                 )}
                               </div>
@@ -698,7 +713,7 @@ function ClassesAdminContent() {
               </div>
             </div>
 
-            {/* Bottom Confirmation Bar */}
+            {/* 底部確認儲存操作列 */}
             <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="text-xs text-gray-600">
                 <span className="font-bold text-gray-900 block text-sm">分班設定摘要</span>
@@ -740,7 +755,7 @@ function ClassesAdminContent() {
           </div>
         )}
 
-        {/* Modal: Create or Edit Class */}
+        {/* 課程新增 / 修改彈窗（雙時鐘輸入） */}
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8">
@@ -772,7 +787,10 @@ function ClassesAdminContent() {
                       type="text"
                       disabled={modalMode === 'edit'}
                       value={formData.class_code}
-                      onChange={(e) => setFormData({ ...formData, class_code: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, class_code: e.target.value });
+                        if (fieldErrors.class_code) setFieldErrors({ ...fieldErrors, class_code: '' });
+                      }}
                       placeholder="例如：C2026-A"
                       className={`w-full px-3 py-2 border rounded-xl text-sm font-mono focus:outline-none transition ${
                         modalMode === 'edit'
@@ -794,7 +812,10 @@ function ClassesAdminContent() {
                     <input
                       type="text"
                       value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, category: e.target.value });
+                        if (fieldErrors.category) setFieldErrors({ ...fieldErrors, category: '' });
+                      }}
                       placeholder="例如：數學思維"
                       className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
                         fieldErrors.category ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
@@ -813,7 +834,10 @@ function ClassesAdminContent() {
                   <input
                     type="text"
                     value={formData.class_name}
-                    onChange={(e) => setFormData({ ...formData, class_name: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, class_name: e.target.value });
+                      if (fieldErrors.class_name) setFieldErrors({ ...fieldErrors, class_name: '' });
+                    }}
                     placeholder="例如：小學奧數進階週六班"
                     className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
                       fieldErrors.class_name ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
@@ -832,7 +856,10 @@ function ClassesAdminContent() {
                     <input
                       type="date"
                       value={formData.lesson_date}
-                      onChange={(e) => setFormData({ ...formData, lesson_date: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, lesson_date: e.target.value });
+                        if (fieldErrors.lesson_date) setFieldErrors({ ...fieldErrors, lesson_date: '' });
+                      }}
                       className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
                         fieldErrors.lesson_date ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                       }`}
@@ -851,9 +878,10 @@ function ClassesAdminContent() {
                       min={1}
                       max={100}
                       value={formData.max_capacity}
-                      onChange={(e) =>
-                        setFormData({ ...formData, max_capacity: parseInt(e.target.value, 10) || 0 })
-                      }
+                      onChange={(e) => {
+                        setFormData({ ...formData, max_capacity: parseInt(e.target.value, 10) || 0 });
+                        if (fieldErrors.max_capacity) setFieldErrors({ ...fieldErrors, max_capacity: '' });
+                      }}
                       className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
                         fieldErrors.max_capacity ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                       }`}
@@ -866,7 +894,7 @@ function ClassesAdminContent() {
 
                 <div className="pt-1">
                   <label className="block text-xs font-bold text-gray-800 mb-1">
-                    上課時段 (指針時間設定) <span className="text-rose-600">*</span>
+                    上課時段 (雙時鐘設定) <span className="text-rose-600">*</span>
                   </label>
 
                   <div className="mb-2.5 p-2.5 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between">
@@ -878,20 +906,22 @@ function ClassesAdminContent() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <AnalogClockPicker
-                      label="開始時間 (Start Time)"
+                      label="開始時間"
                       value={getStartEndTime(formData.duration).start}
                       onChange={(newStart) => {
                         const currentEnd = getStartEndTime(formData.duration).end;
                         setFormData({ ...formData, duration: `${newStart} - ${currentEnd}` });
+                        if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: '' });
                       }}
                     />
 
                     <AnalogClockPicker
-                      label="結束時間 (End Time)"
+                      label="結束時間"
                       value={getStartEndTime(formData.duration).end}
                       onChange={(newEnd) => {
                         const currentStart = getStartEndTime(formData.duration).start;
                         setFormData({ ...formData, duration: `${currentStart} - ${newEnd}` });
+                        if (fieldErrors.duration) setFieldErrors({ ...fieldErrors, duration: '' });
                       }}
                     />
                   </div>
