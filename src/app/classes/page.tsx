@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import AnalogClockPicker from '@/components/AnalogClockPicker';
 
@@ -22,6 +23,14 @@ interface ClassRecord {
   enrolled_count?: number;
 }
 
+interface StudentMinimal {
+  student_code: string;
+  chinese_name: string;
+  english_name: string;
+  phone: string;
+  class_code: string;
+}
+
 const defaultForm: ClassRecord = {
   class_code: '',
   category: '數學思維',
@@ -33,16 +42,28 @@ const defaultForm: ClassRecord = {
   status: 'active',
 };
 
-export default function ClassAdminPage() {
+function ClassesAdminContent() {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'assignment' ? 'assignment' : 'admin';
+  const preselectedStudent = searchParams.get('student');
+
+  const [viewTab, setViewTab] = useState<'admin' | 'assignment'>(initialTab);
   const [classList, setClassList] = useState<ClassRecord[]>([]);
+  const [students, setStudents] = useState<StudentMinimal[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Assignment selection state
+  const [selectedClassForAssign, setSelectedClassForAssign] = useState<string | null>(null);
+  const [selectedStudentsToAssign, setSelectedStudentsToAssign] = useState<string[]>([]);
+  const [assigning, setAssigning] = useState(false);
+
+  // Admin modal state
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [formData, setFormData] = useState<ClassRecord>(defaultForm);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Helper to split "HH:mm - HH:mm" into start and end strings
   const getStartEndTime = (durationStr: string) => {
     const parts = (durationStr || '').split('-').map((s) => s.trim());
     return {
@@ -51,10 +72,11 @@ export default function ClassAdminPage() {
     };
   };
 
-  const loadClassesAndEnrolments = async () => {
+  const loadData = async () => {
     setLoading(true);
     setFeedback(null);
     try {
+      // 1. Query classes
       const { data: rawClasses, error: classErr } = await supabase
         .from('classes')
         .select('*')
@@ -63,14 +85,17 @@ export default function ClassAdminPage() {
 
       if (classErr) throw classErr;
 
-      const { data: students, error: studentErr } = await supabase
+      // 2. Query all students
+      const { data: rawStudents, error: studentErr } = await supabase
         .from('students')
-        .select('class_code');
+        .select('student_code, chinese_name, english_name, phone, class_code');
 
       if (studentErr) throw studentErr;
 
+      setStudents(rawStudents || []);
+
       const countMap: Record<string, number> = {};
-      (students || []).forEach((s) => {
+      (rawStudents || []).forEach((s) => {
         if (s.class_code) {
           countMap[s.class_code] = (countMap[s.class_code] || 0) + 1;
         }
@@ -82,58 +107,61 @@ export default function ClassAdminPage() {
         max_capacity: c.max_capacity ?? 20,
         status: c.status || 'active',
         description: c.description || '',
-        enrolled_count: countMap[c.class_code] || 0,
+        enrolled_count: countMap[c.class_code] ?? c.enrolled_count ?? 0,
       }));
 
       setClassList(aggregated);
+
+      // Pre-select student if passed via query param
+      if (preselectedStudent && rawStudents?.some((s) => s.student_code === preselectedStudent)) {
+        setSelectedStudentsToAssign([preselectedStudent]);
+      }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || '讀取課程資料失敗' });
+      setFeedback({ type: 'error', message: err.message || '讀取資料失敗' });
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadClassesAndEnrolments();
+    loadData();
   }, []);
 
-  // Shared validation suite across Create and Edit modes
+  const availableClassesForAssignment = useMemo(() => {
+    return classList.filter(
+      (cls) => cls.status !== 'suspended' && (cls.enrolled_count || 0) < cls.max_capacity
+    );
+  }, [classList]);
+
+  const targetClassData = useMemo(() => {
+    return classList.find((c) => c.class_code === selectedClassForAssign);
+  }, [classList, selectedClassForAssign]);
+
+  const remainingQuota = useMemo(() => {
+    if (!targetClassData) return 0;
+    return targetClassData.max_capacity - (targetClassData.enrolled_count || 0);
+  }, [targetClassData]);
+
+  // Handle Class Creation / Edit Validation
   const validateForm = (): boolean => {
     const errs: Record<string, string> = {};
-
-    // 1. Class Code Validation
     const cleanCode = formData.class_code.trim();
+
     if (!cleanCode) {
       errs.class_code = '請輸入課程編號';
     } else if (!/^C\d{4}-[A-Z0-9]+$/i.test(cleanCode)) {
-      errs.class_code = '課程編號格式需為 C年份-班別，例如：C2026-A';
+      errs.class_code = '格式需為 C年份-班別，例如：C2026-A';
     } else if (
       modalMode === 'create' &&
       classList.some((c) => c.class_code.toUpperCase() === cleanCode.toUpperCase())
     ) {
-      errs.class_code = `課程編號「${cleanCode}」已存在，請使用不同代碼`;
+      errs.class_code = `課程編號「${cleanCode}」已存在`;
     }
 
-    // 2. Category Validation
-    if (!formData.category.trim()) {
-      errs.category = '請輸入課程類別';
-    } else if (formData.category.trim().length < 2) {
-      errs.category = '課程類別長度最少需 2 個字元';
-    }
+    if (!formData.category.trim()) errs.category = '請輸入課程類別';
+    if (!formData.class_name.trim()) errs.class_name = '請輸入班別名稱';
+    if (!formData.lesson_date) errs.lesson_date = '請選擇有效上課日期';
 
-    // 3. Class Name Validation
-    if (!formData.class_name.trim()) {
-      errs.class_name = '請輸入班別名稱';
-    } else if (formData.class_name.trim().length < 2) {
-      errs.class_name = '班別名稱長度最少需 2 個字元';
-    }
-
-    // 4. Lesson Date Validation
-    if (!formData.lesson_date) {
-      errs.lesson_date = '請選擇有效上課日期';
-    }
-
-    // 5. Duration (Clock) Validation
     const { start, end } = getStartEndTime(formData.duration);
     const startMinutes = parseInt(start.split(':')[0], 10) * 60 + parseInt(start.split(':')[1], 10);
     const endMinutes = parseInt(end.split(':')[0], 10) * 60 + parseInt(end.split(':')[1], 10);
@@ -144,7 +172,6 @@ export default function ClassAdminPage() {
       errs.duration = `結束時間 (${end}) 必須晚於開始時間 (${start})`;
     }
 
-    // 6. Capacity Validation
     const cap = Number(formData.max_capacity);
     if (isNaN(cap) || cap < 1 || cap > 100) {
       errs.max_capacity = '學額上限必須為 1 至 100 之間的整數';
@@ -171,38 +198,11 @@ export default function ClassAdminPage() {
     setModalMode('edit');
   };
 
-  const handleToggleSuspend = async (cls: ClassRecord) => {
-    const nextStatus = cls.status === 'suspended' ? 'active' : 'suspended';
-    const actionLabel = nextStatus === 'suspended' ? '暫停' : '恢復開班';
-
-    if (!confirm(`確定要將課程「${cls.class_name} (${cls.class_code})」設定為【${actionLabel}】狀態嗎？`)) {
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('classes')
-        .update({ status: nextStatus })
-        .eq('class_code', cls.class_code);
-
-      if (error) throw error;
-
-      setClassList((prev) =>
-        prev.map((c) => (c.class_code === cls.class_code ? { ...c, status: nextStatus } : c))
-      );
-      setFeedback({ type: 'success', message: `課程「${cls.class_code}」已成功設定為【${actionLabel}】。` });
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: `更新失敗: ${err.message}` });
-    }
-  };
-
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedback(null);
 
-    if (!validateForm()) {
-      return;
-    }
+    if (!validateForm()) return;
 
     setSaving(true);
     try {
@@ -216,6 +216,7 @@ export default function ClassAdminPage() {
             duration: formData.duration.trim(),
             description: formData.description.trim(),
             max_capacity: Number(formData.max_capacity),
+            enrolled_count: 0,
             status: formData.status || 'active',
           },
         ]);
@@ -235,11 +236,11 @@ export default function ClassAdminPage() {
           })
           .eq('class_code', formData.class_code);
         if (error) throw error;
-        setFeedback({ type: 'success', message: `課程「${formData.class_code}」變更儲存成功！` });
+        setFeedback({ type: 'success', message: `課程「${formData.class_code}」資料更新成功！` });
       }
 
       setModalMode(null);
-      await loadClassesAndEnrolments();
+      await loadData();
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || '儲存失敗' });
     } finally {
@@ -247,14 +248,103 @@ export default function ClassAdminPage() {
     }
   };
 
+  // Student Assignment Validation & Database Sync
+  const handleAssignSubmit = async () => {
+    setFeedback(null);
+
+    // 1. Validation: Class selection
+    if (!selectedClassForAssign) {
+      setFeedback({ type: 'error', message: '請在表格勾選欲指派的目標課堂。' });
+      return;
+    }
+
+    // 2. Validation: Student selection
+    if (selectedStudentsToAssign.length === 0) {
+      setFeedback({ type: 'error', message: '請於學員名單中至少勾選一位欲指派的學員。' });
+      return;
+    }
+
+    // 3. Validation: Quota limit
+    if (!targetClassData) return;
+
+    // Calculate how many selected students are NOT already in this target class
+    const newlyAddedCount = selectedStudentsToAssign.filter((sId) => {
+      const current = students.find((s) => s.student_code === sId);
+      return current?.class_code !== selectedClassForAssign;
+    }).length;
+
+    if (newlyAddedCount > remainingQuota) {
+      setFeedback({
+        type: 'error',
+        message: `選取的 ${newlyAddedCount} 位新學員超出本班剩餘學額 (${remainingQuota} 席)！`,
+      });
+      return;
+    }
+
+    setAssigning(true);
+    try {
+      // Find source classes that will lose students
+      const affectedSourceClasses = new Set<string>();
+      selectedStudentsToAssign.forEach((sId) => {
+        const studentObj = students.find((s) => s.student_code === sId);
+        if (studentObj?.class_code && studentObj.class_code !== selectedClassForAssign) {
+          affectedSourceClasses.add(studentObj.class_code);
+        }
+      });
+
+      // A. Update student class assignment in students table
+      const { error: studentUpdateErr } = await supabase
+        .from('students')
+        .update({ class_code: selectedClassForAssign })
+        .in('student_code', selectedStudentsToAssign);
+
+      if (studentUpdateErr) throw studentUpdateErr;
+
+      // B. Update enrolled_count for the target class
+      const nextTargetCount = (targetClassData.enrolled_count || 0) + newlyAddedCount;
+      await supabase
+        .from('classes')
+        .update({ enrolled_count: nextTargetCount })
+        .eq('class_code', selectedClassForAssign);
+
+      // C. Update enrolled_count for previous source classes
+      for (const srcCode of Array.from(affectedSourceClasses)) {
+        const { count, error: countErr } = await supabase
+          .from('students')
+          .select('*', { count: 'exact', head: true })
+          .eq('class_code', srcCode);
+
+        if (!countErr && count !== null) {
+          await supabase
+            .from('classes')
+            .update({ enrolled_count: count })
+            .eq('class_code', srcCode);
+        }
+      }
+
+      setFeedback({
+        type: 'success',
+        message: `成功將 ${selectedStudentsToAssign.length} 位學員指派至【${selectedClassForAssign}】，資料庫已同步更新人數！`,
+      });
+
+      setSelectedStudentsToAssign([]);
+      setSelectedClassForAssign(null);
+      await loadData();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: `指派失敗: ${err.message}` });
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header Navigation */}
+        {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-gray-200 gap-4">
           <div>
-            <h1 className="text-2xl font-black text-gray-900">課程與堂別管理中心</h1>
-            <p className="text-sm text-gray-500 mt-1">管理課堂排程、學額上限、停課狀態與即時報名人數</p>
+            <h1 className="text-2xl font-black text-gray-900">課程與堂別中心</h1>
+            <p className="text-sm text-gray-500 mt-1">課程詳細管理與學員分班指派作業</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -263,16 +353,48 @@ export default function ClassAdminPage() {
             >
               返回名冊 (Roster)
             </Link>
-            <button
-              onClick={handleOpenCreate}
-              className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-bold rounded-xl shadow-sm transition"
-            >
-              + 新增課程
-            </button>
+            {viewTab === 'admin' && (
+              <button
+                onClick={handleOpenCreate}
+                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-sm font-bold rounded-xl shadow-sm transition"
+              >
+                + 新增課程
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Global Feedback Banner */}
+        {/* Tab Selector */}
+        <div className="flex border-b border-gray-200 mb-6 bg-white p-1 rounded-2xl shadow-sm">
+          <button
+            onClick={() => {
+              setViewTab('admin');
+              setFeedback(null);
+            }}
+            className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${
+              viewTab === 'admin'
+                ? 'bg-purple-700 text-white shadow'
+                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
+            }`}
+          >
+            📋 a) 課程詳細管理 (Full Classes Listing)
+          </button>
+          <button
+            onClick={() => {
+              setViewTab('assignment');
+              setFeedback(null);
+            }}
+            className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${
+              viewTab === 'assignment'
+                ? 'bg-purple-700 text-white shadow'
+                : 'text-gray-600 hover:text-purple-700 hover:bg-gray-50'
+            }`}
+          >
+            🎓 b) 學員分班指派 (Available Classes & Student Assignment)
+          </button>
+        </div>
+
+        {/* Feedback Alert */}
         {feedback && (
           <div
             className={`p-4 mb-6 rounded-xl text-sm font-medium border flex items-center gap-2 ${
@@ -286,116 +408,303 @@ export default function ClassAdminPage() {
           </div>
         )}
 
-        {/* Classes Table */}
-        <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
-            <thead className="bg-purple-700 text-white text-xs font-semibold uppercase">
-              <tr>
-                <th className="px-4 py-3">課程編號</th>
-                <th className="px-4 py-3">課程類別</th>
-                <th className="px-4 py-3">班別名稱</th>
-                <th className="px-4 py-3">上課日期</th>
-                <th className="px-4 py-3">上課時間</th>
-                <th className="px-4 py-3">課堂詳情</th>
-                <th className="px-4 py-3 text-center">學額上限</th>
-                <th className="px-4 py-3 text-center">已報名人數</th>
-                <th className="px-4 py-3 text-center">狀態</th>
-                <th className="px-4 py-3 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {loading ? (
+        {/* MODE A: Full Classes Listing */}
+        {viewTab === 'admin' && (
+          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
+              <thead className="bg-purple-700 text-white text-xs font-semibold uppercase">
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
-                    載入課程列表中...
-                  </td>
+                  <th className="px-4 py-3">課程編號</th>
+                  <th className="px-4 py-3">課程類別</th>
+                  <th className="px-4 py-3">班別名稱</th>
+                  <th className="px-4 py-3">上課日期</th>
+                  <th className="px-4 py-3">上課時間</th>
+                  <th className="px-4 py-3">課堂詳情</th>
+                  <th className="px-4 py-3 text-center">學額上限</th>
+                  <th className="px-4 py-3 text-center">已報名人數</th>
+                  <th className="px-4 py-3 text-center">操作</th>
                 </tr>
-              ) : classList.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
-                    目前暫無課程，請點擊上方按鈕新增。
-                  </td>
-                </tr>
-              ) : (
-                classList.map((cls) => {
-                  const isFull = (cls.enrolled_count || 0) >= cls.max_capacity;
-                  const isSuspended = cls.status === 'suspended';
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-gray-400">
+                      載入課程清單中...
+                    </td>
+                  </tr>
+                ) : classList.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-gray-400">
+                      目前暫無任何課程。
+                    </td>
+                  </tr>
+                ) : (
+                  classList.map((cls) => {
+                    const isFull = (cls.enrolled_count || 0) >= cls.max_capacity;
 
-                  return (
-                    <tr
-                      key={cls.class_code}
-                      className={`hover:bg-purple-50/40 transition ${
-                        isSuspended ? 'bg-gray-50 opacity-60' : ''
-                      }`}
-                    >
-                      <td className="px-4 py-3 font-mono font-bold text-purple-800">
-                        {cls.class_code}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700 border">
-                          {cls.category}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{cls.class_name}</td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{cls.lesson_date}</td>
-                      <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{cls.duration}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate" title={cls.description}>
-                        {cls.description || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold text-gray-700">
-                        {cls.max_capacity} 人
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                            isFull
-                              ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {cls.enrolled_count} 人 {isFull && '(已滿額)'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${
-                            isSuspended
-                              ? 'bg-gray-200 text-gray-600'
-                              : 'bg-green-100 text-green-700'
-                          }`}
-                        >
-                          {isSuspended ? '已暫停' : '進行中'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                    return (
+                      <tr key={cls.class_code} className="hover:bg-purple-50/40 transition">
+                        <td className="px-4 py-3 font-mono font-bold text-purple-800">
+                          {cls.class_code}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700 border">
+                            {cls.category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{cls.class_name}</td>
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{cls.lesson_date}</td>
+                        <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{cls.duration}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate" title={cls.description}>
+                          {cls.description || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-gray-700">
+                          {cls.max_capacity} 人
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                              isFull
+                                ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {cls.enrolled_count} 人 {isFull && '(已滿額)'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
                           <button
                             onClick={() => handleOpenEdit(cls)}
-                            className="px-2.5 py-1 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition"
+                            className="px-3 py-1 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition cursor-pointer"
                           >
                             修改
                           </button>
-                          <button
-                            onClick={() => handleToggleSuspend(cls)}
-                            className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition ${
-                              isSuspended
-                                ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
-                                : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
-                            }`}
-                          >
-                            {isSuspended ? '恢復' : '暫停'}
-                          </button>
-                        </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* MODE B: Available Classes for Student Assignment */}
+        {viewTab === 'assignment' && (
+          <div className="space-y-6">
+            <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl">
+              <h2 className="text-sm font-bold text-purple-900">分班指派作業流程</h2>
+              <p className="text-xs text-purple-700 mt-0.5">
+                步驟 1：於表格勾選要指派的課堂 ➔ 步驟 2：於下方勾選欲調配的學員 ➔ 步驟 3：在頁面底部點擊「確認儲存學員分班指派」
+              </p>
+            </div>
+
+            {/* Classes Table with Assignment Checkboxes */}
+            <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
+              <table className="min-w-full divide-y divide-gray-200 text-sm text-left">
+                <thead className="bg-purple-700 text-white text-xs font-semibold uppercase">
+                  <tr>
+                    <th className="px-4 py-3 text-center">指派目標</th>
+                    <th className="px-4 py-3">課程編號</th>
+                    <th className="px-4 py-3">課程類別</th>
+                    <th className="px-4 py-3">班別名稱</th>
+                    <th className="px-4 py-3">上課日期</th>
+                    <th className="px-4 py-3">上課時間</th>
+                    <th className="px-4 py-3">課堂詳情</th>
+                    <th className="px-4 py-3 text-center">學額上限</th>
+                    <th className="px-4 py-3 text-center">已報名人數</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {availableClassesForAssignment.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-12 text-center text-gray-400">
+                        暫無可供分配的空額課程。
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                  ) : (
+                    availableClassesForAssignment.map((cls) => {
+                      const isSelected = selectedClassForAssign === cls.class_code;
+                      const remaining = cls.max_capacity - (cls.enrolled_count || 0);
 
-        {/* Modal: Form with Unified Validation & Clocks */}
+                      return (
+                        <tr
+                          key={cls.class_code}
+                          onClick={() => setSelectedClassForAssign(cls.class_code)}
+                          className={`cursor-pointer transition ${
+                            isSelected ? 'bg-purple-50 ring-1 ring-purple-500' : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              name="assignClassCheckbox"
+                              checked={isSelected}
+                              onChange={() =>
+                                setSelectedClassForAssign(isSelected ? null : cls.class_code)
+                              }
+                              className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="px-4 py-3 font-mono font-bold text-purple-800">
+                            {cls.class_code}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700 border">
+                              {cls.category}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-900">{cls.class_name}</td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{cls.lesson_date}</td>
+                          <td className="px-4 py-3 font-mono text-gray-600 whitespace-nowrap">{cls.duration}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500 max-w-xs truncate" title={cls.description}>
+                            {cls.description || '-'}
+                          </td>
+                          <td className="px-4 py-3 text-center font-bold text-gray-700">
+                            {cls.max_capacity} 人
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                              {cls.enrolled_count} / {cls.max_capacity} (餘 {remaining} 席)
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Student Picker Checklist */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-100">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    選取欲指派的學員
+                    {selectedClassForAssign && (
+                      <span className="text-purple-700 font-mono ml-2">
+                        ➔ 目標堂別: {selectedClassForAssign}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    已選取 {selectedStudentsToAssign.length} 位學員
+                    {selectedClassForAssign && `（目標班別剩餘學額: ${remainingQuota} 席）`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedStudentsToAssign.length === students.length) {
+                      setSelectedStudentsToAssign([]);
+                    } else {
+                      setSelectedStudentsToAssign(students.map((s) => s.student_code));
+                    }
+                  }}
+                  className="text-xs text-purple-700 hover:text-purple-900 font-bold underline cursor-pointer"
+                >
+                  {selectedStudentsToAssign.length === students.length ? '取消全選' : '全選所有學員'}
+                </button>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 border border-gray-100 rounded-xl">
+                {students.map((st) => {
+                  const isChecked = selectedStudentsToAssign.includes(st.student_code);
+                  const isAlreadyInClass = selectedClassForAssign && st.class_code === selectedClassForAssign;
+
+                  return (
+                    <label
+                      key={st.student_code}
+                      className={`flex items-center justify-between p-3 text-xs cursor-pointer hover:bg-gray-50 transition ${
+                        isChecked ? 'bg-purple-50/60' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={Boolean(isAlreadyInClass)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedStudentsToAssign((prev) => [...prev, st.student_code]);
+                            } else {
+                              setSelectedStudentsToAssign((prev) =>
+                                prev.filter((id) => id !== st.student_code)
+                              );
+                            }
+                          }}
+                          className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer disabled:opacity-40"
+                        />
+                        <div>
+                          <span className="font-bold text-gray-900 text-sm">
+                            {st.chinese_name} ({st.english_name})
+                          </span>
+                          <span className="font-mono text-gray-400 ml-2">[{st.student_code}]</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-gray-500">{st.phone}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
+                            isAlreadyInClass
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}
+                        >
+                          現屬：{st.class_code || '未分班'}
+                        </span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bottom Save & Validation Confirmation Bar */}
+            <div className="sticky bottom-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-xs text-gray-600">
+                <span className="font-bold text-gray-900 block text-sm">分班設定摘要</span>
+                目標班別：
+                <span className="font-mono font-bold text-purple-700 ml-1">
+                  {selectedClassForAssign || '未選取'}
+                </span>
+                <span className="mx-2">|</span>
+                指派學員數：
+                <span className="font-mono font-bold text-purple-700 ml-1">
+                  {selectedStudentsToAssign.length} 人
+                </span>
+                {selectedClassForAssign && (
+                  <>
+                    <span className="mx-2">|</span>
+                    班別剩餘學額：
+                    <span
+                      className={`font-mono font-bold ml-1 ${
+                        selectedStudentsToAssign.length > remainingQuota
+                          ? 'text-rose-600'
+                          : 'text-emerald-700'
+                      }`}
+                    >
+                      {remainingQuota} 席
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={assigning}
+                onClick={handleAssignSubmit}
+                className="w-full sm:w-auto px-8 py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold text-sm rounded-xl shadow-md transition disabled:opacity-50 cursor-pointer"
+              >
+                {assigning ? '正在儲存至資料庫...' : '確認儲存學員分班指派'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Create or Edit Class Details */}
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 my-8">
@@ -405,20 +714,19 @@ export default function ClassAdminPage() {
                     {modalMode === 'create' ? '新增課程資料' : `修改課程: ${formData.class_code}`}
                   </h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {modalMode === 'create' ? '請填寫下列各項課程參數以排定新課程' : '調整現有課堂排程或學額設定'}
+                    {modalMode === 'create' ? '請設定課程編號、班別名稱及上課時段' : '調整現有課堂排程或學額設定'}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setModalMode(null)}
-                  className="text-gray-400 hover:text-gray-600 text-xl font-bold p-1"
+                  className="text-gray-400 hover:text-gray-600 text-xl font-bold p-1 cursor-pointer"
                 >
                   ✕
                 </button>
               </div>
 
               <form onSubmit={handleFormSubmit} className="space-y-4" noValidate>
-                {/* Class Code & Category */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-800 mb-1">
@@ -451,7 +759,7 @@ export default function ClassAdminPage() {
                       type="text"
                       value={formData.category}
                       onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      placeholder="例如：數學思維 / 英語進階"
+                      placeholder="例如：數學思維"
                       className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
                         fieldErrors.category ? 'border-rose-400 bg-rose-50/30' : 'border-gray-300 focus:ring-2 focus:ring-purple-600'
                       }`}
@@ -462,7 +770,6 @@ export default function ClassAdminPage() {
                   </div>
                 </div>
 
-                {/* Class Name */}
                 <div>
                   <label className="block text-xs font-bold text-gray-800 mb-1">
                     班別名稱 <span className="text-rose-600">*</span>
@@ -481,7 +788,6 @@ export default function ClassAdminPage() {
                   )}
                 </div>
 
-                {/* Date & Capacity */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-800 mb-1">
@@ -522,10 +828,9 @@ export default function ClassAdminPage() {
                   </div>
                 </div>
 
-                {/* Dual Graphic Analog Clock Pickers */}
                 <div className="pt-1">
                   <label className="block text-xs font-bold text-gray-800 mb-1">
-                    上課時段 (拖動鐘面指針設定時間) <span className="text-rose-600">*</span>
+                    上課時段 (指針時間設定) <span className="text-rose-600">*</span>
                   </label>
 
                   <div className="mb-2.5 p-2.5 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between">
@@ -562,44 +867,29 @@ export default function ClassAdminPage() {
                   )}
                 </div>
 
-                {/* Status */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-800 mb-1">課程營運狀態</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-600"
-                  >
-                    <option value="active">進行中 (Active)</option>
-                    <option value="suspended">暫停開課 (Suspended)</option>
-                  </select>
-                </div>
-
-                {/* Details / Remarks */}
                 <div>
                   <label className="block text-xs font-bold text-gray-800 mb-1">課堂詳情 / 備註</label>
                   <textarea
                     rows={2}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="請輸入課堂導師、教材需求或授課地點等備註..."
+                    placeholder="請輸入授課地點、教材或導師備註..."
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
                   />
                 </div>
 
-                {/* Modal Footer */}
                 <div className="flex justify-end gap-3 pt-4 border-t">
                   <button
                     type="button"
                     onClick={() => setModalMode(null)}
-                    className="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition"
+                    className="px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition cursor-pointer"
                   >
                     取消
                   </button>
                   <button
                     type="submit"
                     disabled={saving}
-                    className="px-6 py-2.5 text-sm font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow transition disabled:opacity-50"
+                    className="px-6 py-2.5 text-sm font-bold text-white bg-purple-700 hover:bg-purple-800 rounded-xl shadow transition disabled:opacity-50 cursor-pointer"
                   >
                     {saving ? '正在儲存...' : modalMode === 'create' ? '確認新增' : '儲存變更'}
                   </button>
@@ -610,5 +900,13 @@ export default function ClassAdminPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ClassAdminPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">載入中...</div>}>
+      <ClassesAdminContent />
+    </Suspense>
   );
 }

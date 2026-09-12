@@ -15,6 +15,7 @@ interface ClassOption {
   class_name: string;
   lesson_date: string;
   duration: string;
+  status?: string;
 }
 
 interface FormState {
@@ -60,14 +61,26 @@ export default function EditStudentPage() {
       setGeneralError(null);
 
       try {
+        // 1. Fetch available classes ordered chronologically by lesson_date
         const { data: classList, error: classErr } = await supabase
           .from('classes')
-          .select('class_code, class_name, lesson_date, duration')
+          .select('class_code, class_name, lesson_date, duration, status')
           .order('lesson_date', { ascending: true });
 
         if (classErr) throw classErr;
-        setAvailableClasses(classList || []);
 
+        // Sort accurately by date and starting hour
+        const sortedClasses = (classList || []).sort((a, b) => {
+          const timeA = a.duration ? a.duration.split('-')[0].trim() : '00:00';
+          const timeB = b.duration ? b.duration.split('-')[0].trim() : '00:00';
+          const dtA = new Date(`${a.lesson_date}T${timeA.length === 4 ? '0' + timeA : timeA}:00`);
+          const dtB = new Date(`${b.lesson_date}T${timeB.length === 4 ? '0' + timeB : timeB}:00`);
+          return dtA.getTime() - dtB.getTime();
+        });
+
+        setAvailableClasses(sortedClasses);
+
+        // 2. Fetch student details
         const { data: student, error: studentErr } = await supabase
           .from('students')
           .select('*')
@@ -99,7 +112,8 @@ export default function EditStudentPage() {
     loadData();
   }, [studentCode]);
 
-  const isClassPassed = (lessonDate: string, durationStr: string) => {
+  // Check if session has expired based on lesson date and end time
+  const isSessionExpired = (lessonDate: string, durationStr: string) => {
     try {
       const parts = (durationStr || '').split('-');
       const endTimeStr = (parts[1] || parts[0] || '23:59').trim();
@@ -206,29 +220,6 @@ export default function EditStudentPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`確定要刪除學員【${form.chinese_name} (${studentCode})】的登記記錄嗎？此操作無法還原。`)) {
-      return;
-    }
-
-    setSaving(true);
-    setGeneralError(null);
-
-    try {
-      const { error } = await supabase
-        .from('students')
-        .delete()
-        .eq('student_code', studentCode);
-
-      if (error) throw error;
-
-      router.push('/roster');
-    } catch (err: any) {
-      setGeneralError(err.message || '刪除學員記錄失敗');
-      setSaving(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-500">
@@ -241,6 +232,7 @@ export default function EditStudentPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+        {/* Header */}
         <div className="flex items-start justify-between pb-5 mb-6 border-b border-gray-100">
           <div>
             <h1 className="text-2xl font-black text-gray-900">修改學員資料</h1>
@@ -251,12 +243,6 @@ export default function EditStudentPage() {
               </span>
             </div>
           </div>
-          <Link
-            href="/roster"
-            className="text-sm font-semibold text-gray-500 hover:text-gray-900 transition"
-          >
-            取消返回
-          </Link>
         </div>
 
         {generalError && (
@@ -267,7 +253,7 @@ export default function EditStudentPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-8" noValidate>
-          {/* SECTION 1 */}
+          {/* SECTION 1: 學生個人資料 */}
           <section className="space-y-4">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
               <div className="w-2 h-4 bg-purple-700 rounded-full"></div>
@@ -370,7 +356,7 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* SECTION 2 */}
+          {/* SECTION 2: 繳費情況與收據 */}
           <section className="space-y-4 pt-2">
             <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
               <div className="w-2 h-4 bg-emerald-600 rounded-full"></div>
@@ -426,114 +412,126 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* SECTION 3 */}
+          {/* SECTION 3: 課堂報讀與出席狀態 */}
           <section className="space-y-4 pt-2">
             <div className="flex items-center justify-between pb-2 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-4 bg-indigo-600 rounded-full"></div>
                 <h2 className="text-base font-bold text-gray-900">第三部分：課堂報讀與出席紀錄</h2>
               </div>
-              <span className="text-xs text-gray-400">依日期先後排序</span>
+              <span className="text-xs text-gray-400">依時序直列排序</span>
             </div>
 
+            {/* Color Legend */}
             <div className="flex flex-wrap gap-4 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">綠色：已出席 或 未來堂別</span>
+                <span className="text-gray-700 font-medium">綠色：有效課堂（點擊前往分班指派）</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-rose-600 inline-block"></span>
-                <span className="text-gray-700 font-medium">紅色：已過期未出席 (缺席)</span>
+                <span className="text-gray-700 font-medium">紅色：已過期未出席（缺席停用）</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-gray-400 opacity-50 inline-block"></span>
-                <span className="text-gray-700 font-medium">半透明淡化：歷史過去時段</span>
+                <span className="w-3 h-3 rounded-full bg-gray-400 inline-block"></span>
+                <span className="text-gray-700 font-medium">灰色：已過期出席 / 已停課（已封存停用）</span>
               </div>
             </div>
 
-            {errors.class_code && (
-              <p className="text-xs text-rose-600 font-semibold">{errors.class_code}</p>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Straight Vertical List of Sessions */}
+            <div className="flex flex-col gap-2.5">
               {availableClasses.map((cls) => {
                 const isSelected = form.class_code === cls.class_code;
-                const isPassed = isClassPassed(cls.lesson_date, cls.duration);
-                const attended = isSelected ? form.attendance_status : false;
-                const isGreen = !isPassed || attended;
+                const expired = isSessionExpired(cls.lesson_date, cls.duration);
+                const isSuspended = cls.status === 'suspended';
+
+                // Status classification
+                let buttonState: 'active' | 'inactive-absent' | 'inactive-grey' = 'active';
+
+                if (expired || isSuspended) {
+                  if (isSelected && !form.attendance_status) {
+                    buttonState = 'inactive-absent'; // Past absent -> Red
+                  } else {
+                    buttonState = 'inactive-grey';   // Past attended or archived -> Grey
+                  }
+                } else {
+                  buttonState = 'active'; // Future / open -> Green
+                }
+
+                const handleSessionClick = () => {
+                  if (buttonState === 'active') {
+                    // Navigate to classes list in assignment mode with this student pre-selected
+                    router.push(`/classes?tab=assignment&student=${encodeURIComponent(studentCode)}`);
+                  }
+                };
 
                 return (
                   <button
                     key={cls.class_code}
                     type="button"
-                    onClick={() => {
-                      if (isSelected) {
-                        setForm((prev) => ({ ...prev, attendance_status: !prev.attendance_status }));
-                      } else {
-                        setForm((prev) => ({
-                          ...prev,
-                          class_code: cls.class_code,
-                          attendance_status: false,
-                        }));
-                      }
-                      if (errors.class_code) {
-                        setErrors((prev) => {
-                          const next = { ...prev };
-                          delete next.class_code;
-                          return next;
-                        });
-                      }
-                    }}
-                    className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between relative cursor-pointer ${
-                      isPassed ? 'opacity-65 grayscale-[25%]' : 'opacity-100'
+                    disabled={buttonState !== 'active'}
+                    onClick={handleSessionClick}
+                    className={`w-full p-4 rounded-xl border text-left transition flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+                      buttonState === 'active'
+                        ? 'bg-emerald-600 border-emerald-700 text-white shadow-sm hover:bg-emerald-700 hover:shadow-md cursor-pointer'
+                        : buttonState === 'inactive-absent'
+                        ? 'bg-rose-50 border-rose-200 text-rose-800 opacity-80 cursor-not-allowed'
+                        : 'bg-gray-100 border-gray-200 text-gray-500 opacity-60 cursor-not-allowed'
                     } ${
-                      isSelected
-                        ? isGreen
-                          ? 'bg-emerald-600 border-emerald-700 text-white shadow-md ring-2 ring-emerald-400'
-                          : 'bg-rose-600 border-rose-700 text-white shadow-md ring-2 ring-rose-400'
-                        : 'bg-white border-gray-200 hover:border-gray-400 text-gray-800'
+                      isSelected && buttonState === 'active'
+                        ? 'ring-2 ring-emerald-300 ring-offset-2'
+                        : ''
                     }`}
                   >
-                    <div className="flex items-center justify-between w-full mb-1">
+                    <div className="flex items-center gap-3">
                       <span
-                        className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                          isSelected
+                        className={`text-xs font-mono font-bold px-2.5 py-1 rounded-lg ${
+                          buttonState === 'active'
                             ? 'bg-white/20 text-white'
-                            : 'bg-purple-50 text-purple-700 border border-purple-200'
+                            : buttonState === 'inactive-absent'
+                            ? 'bg-rose-200 text-rose-900'
+                            : 'bg-gray-200 text-gray-700'
                         }`}
                       >
                         {cls.class_code}
                       </span>
-                      <span
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                          isSelected
-                            ? 'bg-white/25 text-white'
-                            : isPassed
-                            ? 'bg-gray-100 text-gray-500'
-                            : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                      >
-                        {isSelected
-                          ? isPassed
-                            ? attended
-                              ? '✓ 已出席'
-                              : '✕ 缺席 (點擊變更)'
-                            : '已登記 (報讀中)'
-                          : isPassed
-                          ? '已結束'
-                          : '即將開課'}
-                      </span>
+                      <div>
+                        <span className="font-bold text-sm block">
+                          {cls.class_name}
+                        </span>
+                        <div className="text-xs font-mono opacity-90 mt-0.5">
+                          📅 {cls.lesson_date} | ⏰ {cls.duration}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="font-bold text-sm truncate">{cls.class_name}</div>
-                    
-                    <div
-                      className={`text-xs mt-1.5 flex items-center justify-between font-mono ${
-                        isSelected ? 'text-white/90' : 'text-gray-500'
-                      }`}
-                    >
-                      <span>📅 {cls.lesson_date}</span>
-                      <span>⏰ {cls.duration}</span>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      {isSelected && (
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+                            buttonState === 'active'
+                              ? 'bg-white text-emerald-800'
+                              : 'bg-rose-200 text-rose-900'
+                          }`}
+                        >
+                          現讀堂別
+                        </span>
+                      )}
+                      <span
+                        className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                          buttonState === 'active'
+                            ? 'bg-emerald-700/80 text-white border border-emerald-400/50'
+                            : buttonState === 'inactive-absent'
+                            ? 'bg-rose-100 text-rose-700'
+                            : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {buttonState === 'active'
+                          ? '有效堂別 (點擊調整分班 ➔)'
+                          : buttonState === 'inactive-absent'
+                          ? '✕ 已過期缺席 (停用)'
+                          : '已封存 / 已出席 (停用)'}
+                      </span>
                     </div>
                   </button>
                 );
@@ -541,23 +539,22 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* ACTIONS */}
-          <div className="flex gap-3 pt-4 border-t border-gray-100">
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={saving}
-              className="w-1/3 py-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-sm border border-rose-200 transition cursor-pointer disabled:opacity-50"
-            >
-              刪除此學員
-            </button>
+          {/* Submission and Relocated Cancel Action */}
+          <div className="space-y-3 pt-4 border-t border-gray-100">
             <button
               type="submit"
               disabled={saving}
-              className="w-2/3 py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
+              className="w-full py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-sm shadow transition disabled:opacity-50 cursor-pointer"
             >
               {saving ? '正在儲存變更...' : '儲存變更'}
             </button>
+
+            <Link
+              href="/roster"
+              className="block w-full py-2.5 text-center text-sm font-semibold text-gray-600 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 transition"
+            >
+              取消返回
+            </Link>
           </div>
         </form>
       </div>
