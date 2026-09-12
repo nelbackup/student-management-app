@@ -1,14 +1,24 @@
 ﻿import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Explicitly opt out of static build-time evaluation
+export const dynamic = 'force-dynamic';
+
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are missing.');
+  }
+
+  return createClient(supabaseUrl, supabaseKey);
+}
 
 const safeTrim = (val: unknown): string => (typeof val === 'string' ? val.trim() : '');
 
 async function generateNextStudentCode(): Promise<string> {
+  const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from('students')
     .select('student_code')
@@ -27,13 +37,13 @@ async function generateNextStudentCode(): Promise<string> {
 
 export async function POST(request: Request) {
   try {
+    const supabase = getSupabaseClient();
     const rawBody = await request.json();
 
     if (!rawBody) {
       return NextResponse.json({ success: false, error: '缺少請求內容 (Empty body)' }, { status: 400 });
     }
 
-    // Defensive unpacking: accept both an array [{...}] or single object {...}
     const body = Array.isArray(rawBody) ? rawBody[0] : rawBody;
 
     if (!body || typeof body !== 'object') {
@@ -56,7 +66,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Auto-generate next student_code if not supplied to prevent primary key collisions
     const student_code = safeTrim(body.student_code) || (await generateNextStudentCode());
 
     const { data: newStudent, error: insertError } = await supabase
