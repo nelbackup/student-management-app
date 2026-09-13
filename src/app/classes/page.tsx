@@ -247,6 +247,11 @@ function ClassesAdminContent() {
     return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名與上課通知。`)}`;
   };
 
+  const handleClassSort = (field: ClassSortField) => {
+    if (classSortField === field) setClassSortAsc(!classSortAsc);
+    else { setClassSortField(field); setClassSortAsc(true); }
+  };
+
   const renderSortArrow = (current: string, active: string, asc: boolean) => {
     if (current !== active) return <span className="ml-1 text-sky-200 opacity-60">↕</span>;
     return <span className="ml-1 text-amber-300 font-bold">{asc ? '▲' : '▼'}</span>;
@@ -350,6 +355,7 @@ function ClassesAdminContent() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* Requirement 2: Moved "返回點名名冊" button to the right most at the top */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center gap-4">
             <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
@@ -364,10 +370,10 @@ function ClassesAdminContent() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Link href="/roster" className="px-4 py-2 text-sm font-semibold text-sky-900 bg-white hover:bg-sky-50 rounded-xl border border-sky-200 shadow-sm transition">返回點名名冊</Link>
             {viewTab === 'admin' && (
               <button onClick={handleOpenCreate} className="px-4 py-2 bg-sky-950 hover:bg-sky-900 text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer border-b-2 border-amber-400">+ 新增課程</button>
             )}
+            <Link href="/roster" className="px-4 py-2 text-sm font-semibold text-sky-900 bg-white hover:bg-sky-50 rounded-xl border border-sky-200 shadow-sm transition">返回點名名冊</Link>
           </div>
         </div>
 
@@ -391,14 +397,29 @@ function ClassesAdminContent() {
             <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
               <thead className="bg-sky-950 text-white text-xs font-semibold uppercase select-none">
                 <tr>
-                  <th onClick={() => setClassSortField('class_code')} className="px-4 py-3 cursor-pointer">課程編號</th>
-                  <th className="px-4 py-3">課程類別</th>
-                  <th className="px-4 py-3">班別名稱</th>
-                  <th className="px-4 py-3">上課日期</th>
-                  <th className="px-4 py-3">上課時間</th>
+                  {/* Requirement 2: Table column sorting function on headers */}
+                  <th onClick={() => handleClassSort('class_code')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>課程編號</span>{renderSortArrow('class_code', classSortField, classSortAsc)}</div>
+                  </th>
+                  <th onClick={() => handleClassSort('category')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>課程類別</span>{renderSortArrow('category', classSortField, classSortAsc)}</div>
+                  </th>
+                  <th onClick={() => handleClassSort('class_name')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>班別名稱</span>{renderSortArrow('class_name', classSortField, classSortAsc)}</div>
+                  </th>
+                  <th onClick={() => handleClassSort('lesson_date')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>上課日期</span>{renderSortArrow('lesson_date', classSortField, classSortAsc)}</div>
+                  </th>
+                  <th onClick={() => handleClassSort('duration')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>上課時間</span>{renderSortArrow('duration', classSortField, classSortAsc)}</div>
+                  </th>
                   <th className="px-4 py-3">課堂詳情</th>
-                  <th className="px-4 py-3 text-center">學額上限</th>
-                  <th className="px-4 py-3 text-center">已報名人數</th>
+                  <th onClick={() => handleClassSort('max_capacity')} className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center justify-center"><span>學額上限</span>{renderSortArrow('max_capacity', classSortField, classSortAsc)}</div>
+                  </th>
+                  <th onClick={() => handleClassSort('enrolled_count')} className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center justify-center"><span>已報名人數</span>{renderSortArrow('enrolled_count', classSortField, classSortAsc)}</div>
+                  </th>
                   <th className="px-4 py-3 text-center">操作</th>
                 </tr>
               </thead>
@@ -475,7 +496,7 @@ function ClassesAdminContent() {
               <div className="text-xs text-slate-600">
                 調配學員：<span className="font-bold text-sky-950">{currentTargetStudent?.chinese_name}</span> | 目標班別：<span className="font-mono font-bold text-sky-800">{selectedClassForAssign || '未選取'}</span>
               </div>
-              <button disabled={assigning || !selectedClassForAssign || !currentTargetStudent} onClick={handleAssignSubmit} className="px-8 py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold text-sm rounded-xl shadow cursor-pointer">
+              <button disabled={assigning || !selectedClassForAssign} onClick={handleAssignSubmit} className="px-8 py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold text-sm rounded-xl shadow cursor-pointer">
                 {assigning ? '儲存中...' : '確認儲存學員分班指派'}
               </button>
             </div>

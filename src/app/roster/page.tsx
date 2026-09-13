@@ -361,12 +361,13 @@ export default function RosterPage() {
           </div>
         </div>
 
+        {/* Requirement 1: Aligned Class Information Cards */}
         <div className="bg-gradient-to-r from-sky-50 via-slate-50 to-amber-50/30 border border-sky-200 rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between pb-3 border-b border-sky-100 mb-3">
+          <div className="flex items-center justify-between pb-3 border-b border-sky-100 mb-4">
             <h2 className="text-sm font-bold text-sky-950 flex items-center gap-2">
-              <span className="text-amber-500">★</span> 所選課堂資訊摘要
+              <span className="text-amber-500 font-black">★</span> 所選課堂資訊摘要
             </h2>
-            <span className="text-xs font-bold text-sky-950 bg-amber-100 px-3 py-1 rounded-full border border-amber-200">
+            <span className="text-xs font-bold text-sky-950 bg-amber-100 px-3 py-1 rounded-full border border-amber-200 shadow-sm">
               報讀總計：{sortedStudents.length} 人
             </span>
           </div>
@@ -374,23 +375,26 @@ export default function RosterPage() {
           {currentSelectedClasses.length === 0 ? (
             <div className="text-xs text-slate-500 py-2">所選條件下無相應課堂排程。</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {currentSelectedClasses.map((cls) => (
-                <div key={cls.class_code} className="bg-white p-3.5 rounded-xl border border-sky-100 shadow-sm flex flex-col justify-between">
+                <div
+                  key={cls.class_code}
+                  className="bg-white p-4 rounded-xl border-2 border-sky-950/10 shadow-sm hover:border-amber-400 transition flex flex-col justify-between"
+                >
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-mono font-bold text-sky-900 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-mono font-bold text-sky-950 bg-sky-50 px-2.5 py-0.5 rounded border border-sky-200">
                         {cls.class_code}
                       </span>
-                      <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                      <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded border border-amber-200">
                         {cls.category || '專班'}
                       </span>
                     </div>
-                    <div className="font-bold text-sm text-sky-950">{cls.class_name}</div>
+                    <div className="font-black text-sm text-sky-950 tracking-tight">{cls.class_name}</div>
                   </div>
-                  <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-mono">
-                    <span>📅 {cls.lesson_date}</span>
-                    <span>⏰ {cls.duration}</span>
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-mono">
+                    <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-semibold">📅 {cls.lesson_date}</span>
+                    <span className="bg-sky-50 text-sky-900 px-2 py-0.5 rounded font-bold">⏰ {cls.duration}</span>
                   </div>
                 </div>
               ))}
