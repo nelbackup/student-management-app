@@ -46,11 +46,9 @@ export default function RosterPage() {
   const [msg002Template, setMsg002Template] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Sorting state
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortAsc, setSortAsc] = useState<boolean>(true);
 
-  // Remark Modal State
   const [activeRemarkStudent, setActiveRemarkStudent] = useState<Student | null>(null);
   const [remarkText, setRemarkText] = useState<string>('');
   const [savingRemark, setSavingRemark] = useState<boolean>(false);
@@ -74,7 +72,6 @@ export default function RosterPage() {
           setSelectedDate(distinctDates[0]);
         }
 
-        // Fetch MSG-002 template for roster phone links
         const { data: tmpl } = await supabase
           .from('message_templates')
           .select('content')
@@ -220,7 +217,6 @@ export default function RosterPage() {
       .eq('student_code', studentCode);
 
     if (error) {
-      console.error('更新簽到狀態失敗:', error.message);
       setStudents((prev) =>
         prev.map((s) => (s.student_code === studentCode ? { ...s, attendance_status: false } : s))
       );
@@ -264,7 +260,6 @@ export default function RosterPage() {
     }
   };
 
-  // Generate WhatsApp Web link referencing MSG-002 template variables
   const getWhatsAppWebLinkForStudent = (student: Student) => {
     const cleaned = student.phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
@@ -298,7 +293,6 @@ export default function RosterPage() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Brand Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center gap-4">
             <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
@@ -332,7 +326,6 @@ export default function RosterPage() {
           </div>
         </div>
 
-        {/* 篩選下拉選單 */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -346,9 +339,7 @@ export default function RosterPage() {
                   <option value="">暫無任何有效開課日期</option>
                 ) : (
                   availableDates.map((date) => (
-                    <option key={date} value={date}>
-                      {date}
-                    </option>
+                    <option key={date} value={date}>{date}</option>
                   ))
                 )}
               </select>
@@ -363,16 +354,13 @@ export default function RosterPage() {
               >
                 <option value="全部堂別">全部堂別</option>
                 {availableSessions.map((session) => (
-                  <option key={session} value={session}>
-                    {session}
-                  </option>
+                  <option key={session} value={session}>{session}</option>
                 ))}
               </select>
             </div>
           </div>
         </div>
 
-        {/* 所選課堂摘要區塊 */}
         <div className="bg-gradient-to-r from-sky-50 via-slate-50 to-amber-50/30 border border-sky-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between pb-3 border-b border-sky-100 mb-3">
             <h2 className="text-sm font-bold text-sky-950 flex items-center gap-2">
@@ -388,10 +376,7 @@ export default function RosterPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {currentSelectedClasses.map((cls) => (
-                <div
-                  key={cls.class_code}
-                  className="bg-white p-3.5 rounded-xl border border-sky-100 shadow-sm flex flex-col justify-between"
-                >
+                <div key={cls.class_code} className="bg-white p-3.5 rounded-xl border border-sky-100 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-mono font-bold text-sky-900 bg-sky-50 px-2 py-0.5 rounded border border-sky-200">
@@ -413,182 +398,83 @@ export default function RosterPage() {
           )}
         </div>
 
-        {/* 點名表格 (聯絡電話參考 MSG-002 範本) */}
         <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-sky-950 text-white select-none">
               <tr>
-                <th
-                  onClick={() => handleSort('name')}
-                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center">
-                    <span>學生名字</span>
-                    {renderSortIndicator('name')}
-                  </div>
+                <th onClick={() => handleSort('name')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center"><span>學生名字</span>{renderSortIndicator('name')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('gender')}
-                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center">
-                    <span>性別</span>
-                    {renderSortIndicator('gender')}
-                  </div>
+                <th onClick={() => handleSort('gender')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center"><span>性別</span>{renderSortIndicator('gender')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('school')}
-                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center">
-                    <span>就讀學校</span>
-                    {renderSortIndicator('school')}
-                  </div>
+                <th onClick={() => handleSort('school')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center"><span>就讀學校</span>{renderSortIndicator('school')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('payment')}
-                  className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center justify-center">
-                    <span>付款情況</span>
-                    {renderSortIndicator('payment')}
-                  </div>
+                <th onClick={() => handleSort('payment')} className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center justify-center"><span>付款情況</span>{renderSortIndicator('payment')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('receipt')}
-                  className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center justify-center">
-                    <span>收據檢視</span>
-                    {renderSortIndicator('receipt')}
-                  </div>
+                <th onClick={() => handleSort('receipt')} className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center justify-center"><span>收據檢視</span>{renderSortIndicator('receipt')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('phone')}
-                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center">
-                    <span>聯絡電話 (點擊發送 MSG-002)</span>
-                    {renderSortIndicator('phone')}
-                  </div>
+                <th onClick={() => handleSort('phone')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center"><span>聯絡電話 (發送 MSG-002)</span>{renderSortIndicator('phone')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('attendance')}
-                  className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                >
-                  <div className="flex items-center justify-center">
-                    <span>出席簽到</span>
-                    {renderSortIndicator('attendance')}
-                  </div>
+                <th onClick={() => handleSort('attendance')} className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                  <div className="flex items-center justify-center"><span>出席簽到</span>{renderSortIndicator('attendance')}</div>
                 </th>
-                <th
-                  onClick={() => handleSort('remark')}
-                  className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition min-w-[160px]"
-                >
-                  <div className="flex items-center">
-                    <span>課堂備註</span>
-                    {renderSortIndicator('remark')}
-                  </div>
+                <th onClick={() => handleSort('remark')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition min-w-[160px]">
+                  <div className="flex items-center"><span>課堂備註</span>{renderSortIndicator('remark')}</div>
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {sortedStudents.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
-                    {loading ? '正在讀取名冊記錄...' : '所選條件下暫無學生記錄'}
-                  </td>
-                </tr>
+                <tr><td colSpan={8} className="py-12 text-center text-slate-400">{loading ? '正在讀取名冊記錄...' : '所選條件下暫無學生記錄'}</td></tr>
               ) : (
                 sortedStudents.map((st) => (
                   <tr key={st.student_code} className="hover:bg-sky-50/40 transition">
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/student/edit/${st.student_code}`}
-                        className="group flex flex-col hover:opacity-80"
-                      >
-                        <span className="font-bold text-sky-950 underline decoration-sky-300 group-hover:text-amber-600">
-                          {st.chinese_name}
-                        </span>
-                        {st.english_name && (
-                          <span className="text-xs text-slate-400">{st.english_name}</span>
-                        )}
+                      <Link href={`/student/edit/${st.student_code}`} className="group flex flex-col hover:opacity-80">
+                        <span className="font-bold text-sky-950 underline decoration-sky-300 group-hover:text-amber-600">{st.chinese_name}</span>
+                        {st.english_name && <span className="text-xs text-slate-400">{st.english_name}</span>}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{st.gender}</td>
                     <td className="px-4 py-3 text-slate-600">{st.school || '-'}</td>
                     <td className="px-4 py-3 text-center">
-                      <span
-                        className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
-                          st.payment_status === 'yes'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
+                      <span className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${st.payment_status === 'yes' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                         {st.payment_status === 'yes' ? '已付款' : '未付款'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
                       {st.receipt_url ? (
-                        <a
-                          href={st.receipt_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sky-700 hover:text-sky-900 font-semibold underline text-xs"
-                        >
-                          檢視收據
-                        </a>
-                      ) : (
-                        <span className="text-slate-400 text-xs">無</span>
-                      )}
+                        <a href={st.receipt_url} target="_blank" rel="noreferrer" className="text-sky-700 hover:text-sky-900 font-semibold underline text-xs">檢視收據</a>
+                      ) : <span className="text-slate-400 text-xs">無</span>}
                     </td>
                     <td className="px-4 py-3 font-mono">
-                      <a
-                        href={getWhatsAppWebLinkForStudent(st)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
-                        title="點擊透過 WhatsApp Web 發送 MSG-002 範本訊息"
-                      >
+                      <a href={getWhatsAppWebLinkForStudent(st)} target="whatsapp_web_session" rel="noreferrer" className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300" title="點擊透過 WhatsApp Web 發送 MSG-002">
                         {st.phone}
                       </a>
                     </td>
                     <td className="px-4 py-3 text-center">
                       {st.attendance_status ? (
                         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold select-none cursor-default">
-                          <span>✓</span>
-                          <span>已出席</span>
+                          <span>✓</span><span>已出席</span>
                         </div>
                       ) : (
-                        <input
-                          type="checkbox"
-                          checked={false}
-                          onChange={(e) => handleAttendanceCheck(st.student_code, e.target.checked)}
-                          className="w-4 h-4 text-sky-800 rounded border-slate-300 focus:ring-sky-700 cursor-pointer"
-                        />
+                        <input type="checkbox" checked={false} onChange={(e) => handleAttendanceCheck(st.student_code, e.target.checked)} className="w-4 h-4 text-sky-800 rounded border-slate-300 focus:ring-sky-700 cursor-pointer" />
                       )}
                     </td>
                     <td className="px-4 py-3">
                       {st.session_remark ? (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenRemarkPrompt(st)}
-                          className="text-left group flex items-start gap-1 text-xs text-slate-700 hover:text-sky-950 transition cursor-pointer max-w-xs"
-                          title="點擊修改課堂備註"
-                        >
-                          <span className="line-clamp-2 underline decoration-dashed decoration-slate-300 group-hover:decoration-sky-700">
-                            {st.session_remark}
-                          </span>
+                        <button type="button" onClick={() => handleOpenRemarkPrompt(st)} className="text-left group flex items-start gap-1 text-xs text-slate-700 hover:text-sky-950 transition cursor-pointer max-w-xs" title="點擊修改課堂備註">
+                          <span className="line-clamp-2 underline decoration-dashed decoration-slate-300 group-hover:decoration-sky-700">{st.session_remark}</span>
                           <span className="text-amber-600 font-bold ml-1 shrink-0">✏️</span>
                         </button>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenRemarkPrompt(st)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:text-sky-950 hover:bg-sky-50 px-2.5 py-1 rounded-lg border border-dashed border-sky-300 transition cursor-pointer"
-                        >
-                          <span>+</span>
-                          <span>新增備註</span>
+                        <button type="button" onClick={() => handleOpenRemarkPrompt(st)} className="inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:text-sky-950 hover:bg-sky-50 px-2.5 py-1 rounded-lg border border-dashed border-sky-300 transition cursor-pointer">
+                          <span>+</span><span>新增備註</span>
                         </button>
                       )}
                     </td>
@@ -599,7 +485,6 @@ export default function RosterPage() {
           </table>
         </div>
 
-        {/* 課堂備註編輯視窗 */}
         {activeRemarkStudent && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 my-8 space-y-4">
@@ -613,56 +498,24 @@ export default function RosterPage() {
                     <span className="font-mono ml-1 text-sky-800">[{activeRemarkStudent.student_code}]</span>
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveRemarkStudent(null)}
-                  className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1 cursor-pointer"
-                >
-                  ✕
-                </button>
+                <button type="button" onClick={() => setActiveRemarkStudent(null)} className="text-slate-400 hover:text-slate-600 text-xl font-bold p-1 cursor-pointer">✕</button>
               </div>
 
               {remarkFeedback && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
-                  {remarkFeedback}
-                </div>
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">{remarkFeedback}</div>
               )}
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-slate-500">
                   <span>請輸入學習表現、跟進事項或課堂注意事項：</span>
-                  <span
-                    className={`font-mono font-bold ${
-                      remarkText.length > 480 ? 'text-rose-600' : 'text-slate-500'
-                    }`}
-                  >
-                    {remarkText.length} / 500 字
-                  </span>
+                  <span className={`font-mono font-bold ${remarkText.length > 480 ? 'text-rose-600' : 'text-slate-500'}`}>{remarkText.length} / 500 字</span>
                 </div>
-                <textarea
-                  rows={6}
-                  maxLength={500}
-                  value={remarkText}
-                  onChange={(e) => setRemarkText(e.target.value)}
-                  placeholder="例如：課堂邏輯推演表現優異，幾何模型需再加強概念理解；家長已確認下週六按時到校..."
-                  className="w-full p-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none resize-y leading-relaxed text-slate-800"
-                />
+                <textarea rows={6} maxLength={500} value={remarkText} onChange={(e) => setRemarkText(e.target.value)} placeholder="例如：課堂邏輯推演表現優異..." className="w-full p-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none resize-y leading-relaxed text-slate-800" />
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setActiveRemarkStudent(null)}
-                  className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  disabled={savingRemark}
-                  onClick={handleSaveRemark}
-                  className="px-6 py-2 text-sm font-bold text-white bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 rounded-xl shadow transition disabled:opacity-50 cursor-pointer"
-                >
+                <button type="button" onClick={() => setActiveRemarkStudent(null)} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">取消</button>
+                <button type="button" disabled={savingRemark} onClick={handleSaveRemark} className="px-6 py-2 text-sm font-bold text-white bg-sky-950 hover:bg-sky-900 border-b-2 border-amber-400 rounded-xl shadow transition disabled:opacity-50 cursor-pointer">
                   {savingRemark ? '正在儲存...' : '儲存備註'}
                 </button>
               </div>

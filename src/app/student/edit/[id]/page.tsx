@@ -71,7 +71,6 @@ export default function EditStudentPage() {
         if (classErr) throw classErr;
         setAvailableClasses(classList || []);
 
-        // Fetch MSG-001 template from database
         const { data: tmpl, error: tmplErr } = await supabase
           .from('message_templates')
           .select('content')
@@ -353,32 +352,19 @@ export default function EditStudentPage() {
 
               <div>
                 <label className="block text-sm font-bold text-slate-800 mb-1">
-                  聯絡電話 (點擊發送 WhatsApp 提示) <span className="text-rose-600">*</span>
+                  聯絡電話 <span className="text-rose-600">*</span>
                 </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={form.phone}
-                    onChange={handleChange}
-                    placeholder="例如：98765432"
-                    maxLength={8}
-                    className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition font-mono ${
-                      errors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
-                    }`}
-                  />
-                  {form.phone && (
-                    <a
-                      href={getWhatsAppWebLink(form.phone)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition shrink-0 flex items-center gap-1"
-                      title="發送預設範本訊息"
-                    >
-                      <span>💬</span> WhatsApp
-                    </a>
-                  )}
-                </div>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={form.phone}
+                  onChange={handleChange}
+                  placeholder="例如：98765432"
+                  maxLength={8}
+                  className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none transition font-mono ${
+                    errors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
+                  }`}
+                />
                 {errors.phone && (
                   <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.phone}</p>
                 )}
@@ -398,7 +384,7 @@ export default function EditStudentPage() {
             </div>
           </section>
 
-          {/* 第二部分：繳費及收據記錄 */}
+          {/* 第二部分：繳費及收據記錄 (包含 WhatsApp 按鈕) */}
           <section className="space-y-4 pt-2">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
               <div className="w-2 h-4 bg-emerald-600 rounded-full"></div>
@@ -445,6 +431,29 @@ export default function EditStudentPage() {
                 />
                 {errors.receipt_url && (
                   <p className="mt-1 text-xs text-rose-600 font-semibold">{errors.receipt_url}</p>
+                )}
+              </div>
+            </div>
+
+            {/* WhatsApp 按鈕移至第二部分 */}
+            <div className="pt-2">
+              <label className="block text-sm font-bold text-slate-800 mb-1.5">
+                聯絡電話 (點擊發送 WhatsApp 提示)
+              </label>
+              <div className="flex items-center gap-3">
+                <span className="font-mono font-bold text-slate-700 bg-slate-100 px-3.5 py-2.5 rounded-xl border border-slate-200">
+                  {form.phone || '未填寫電話'}
+                </span>
+                {form.phone && (
+                  <a
+                    href={getWhatsAppWebLink(form.phone)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition cursor-pointer"
+                    title="發送預設範本訊息"
+                  >
+                    <span>💬</span> WhatsApp
+                  </a>
                 )}
               </div>
             </div>

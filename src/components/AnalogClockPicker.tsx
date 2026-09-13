@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface AnalogClockPickerProps {
   label: string;
-  value: string; // 'HH:MM' (24-hour format)
+  value: string;
   onChange: (val: string) => void;
 }
 
@@ -20,11 +20,7 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
     let h12 = validH % 12;
     if (h12 === 0) h12 = 12;
 
-    return {
-      hours12: h12,
-      minutes: validM,
-      period,
-    };
+    return { hours12: h12, minutes: validM, period };
   };
 
   const initial = parseTime(value);
@@ -48,9 +44,7 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
       let h24 = h12;
       if (p === 'PM' && h12 !== 12) h24 = h12 + 12;
       if (p === 'AM' && h12 === 12) h24 = 0;
-
-      const formatted = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      onChange(formatted);
+      onChange(`${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
     },
     [onChange]
   );
@@ -73,11 +67,8 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
     const angleDeg = (angleRad * 180) / Math.PI;
 
     let targetHand = activeHand;
-    if (distance < 36) {
-      targetHand = 'hours';
-    } else if (distance > 54) {
-      targetHand = 'minutes';
-    }
+    if (distance < 36) targetHand = 'hours';
+    else if (distance > 54) targetHand = 'minutes';
 
     if (targetHand === 'hours') {
       let selectedH = Math.round(angleDeg / 30);
@@ -103,12 +94,7 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
       if (!isDragging) return;
       calculateAngleAndValue(e);
     };
-
-    const handlePointerUp = () => {
-      if (isDragging) {
-        setIsDragging(false);
-      }
-    };
+    const handlePointerUp = () => setIsDragging(false);
 
     if (isDragging) {
       window.addEventListener('mousemove', handlePointerMove);
@@ -116,7 +102,6 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
       window.addEventListener('touchmove', handlePointerMove);
       window.addEventListener('touchend', handlePointerUp);
     }
-
     return () => {
       window.removeEventListener('mousemove', handlePointerMove);
       window.removeEventListener('mouseup', handlePointerUp);
@@ -128,62 +113,8 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
   const hourAngle = (hours12 % 12) * 30 + (minutes / 60) * 30;
   const minuteAngle = minutes * 6;
 
-  const renderAllDialNumbers = () => {
-    const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-    const minutesMark = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-
-    return (
-      <>
-        {hours.map((num) => {
-          const angle = (num % 12) * 30 * (Math.PI / 180);
-          const radius = 38;
-          const x = Math.sin(angle) * radius;
-          const y = -Math.cos(angle) * radius;
-          const isSelected = hours12 === num;
-
-          return (
-            <span
-              key={`h-${num}`}
-              style={{ transform: `translate(${x}px, ${y}px)` }}
-              className={`absolute text-[10px] font-bold select-none flex items-center justify-center w-4 h-4 rounded-full transition-colors ${
-                isSelected && activeHand === 'hours'
-                  ? 'bg-sky-950 text-white shadow-sm'
-                  : 'text-slate-700 hover:text-sky-950'
-              }`}
-            >
-              {num}
-            </span>
-          );
-        })}
-
-        {minutesMark.map((num) => {
-          const angle = num * 6 * (Math.PI / 180);
-          const radius = 58;
-          const x = Math.sin(angle) * radius;
-          const y = -Math.cos(angle) * radius;
-          const isSelected = minutes === num;
-
-          return (
-            <span
-              key={`m-${num}`}
-              style={{ transform: `translate(${x}px, ${y}px)` }}
-              className={`absolute text-[9px] font-mono select-none flex items-center justify-center w-4 h-4 rounded-full transition-colors ${
-                isSelected && activeHand === 'minutes'
-                  ? 'bg-amber-500 text-sky-950 font-black shadow-sm'
-                  : 'text-slate-400 hover:text-slate-700'
-              }`}
-            >
-              {String(num).padStart(2, '0')}
-            </span>
-          );
-        })}
-      </>
-    );
-  };
-
   return (
     <div className="bg-slate-50/90 border border-slate-200 p-3 rounded-2xl flex flex-col shadow-sm w-full">
-      {/* Header Row */}
       <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200">
         <span className="text-xs font-black text-sky-950">{label}</span>
         <div className="flex items-center gap-1.5">
@@ -196,104 +127,26 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
         </div>
       </div>
 
-      {/* Main Body: Left Controls, Right Clock Face */}
       <div className="flex items-center justify-between gap-3">
-        {/* Left Hand Controls & AM/PM */}
         <div className="flex flex-col gap-2 w-32">
-          <div className="flex flex-col bg-slate-200/80 p-0.5 rounded-xl border border-slate-300 gap-0.5">
-            <button
-              type="button"
-              onClick={() => setActiveHand('hours')}
-              className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
-                activeHand === 'hours'
-                  ? 'bg-sky-950 text-white shadow-sm border-l-2 border-amber-400'
-                  : 'text-slate-600 hover:text-sky-950'
-              }`}
-            >
-              調整時針
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveHand('minutes')}
-              className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
-                activeHand === 'minutes'
-                  ? 'bg-sky-950 text-white shadow-sm border-l-2 border-amber-400'
-                  : 'text-slate-600 hover:text-sky-950'
-              }`}
-            >
-              調整分針
-            </button>
+          <div className="flex flex-col bg-slate-200/80 p-0.5 rounded-xl border gap-0.5">
+            <button type="button" onClick={() => setActiveHand('hours')} className={`py-1 text-[11px] font-bold rounded-lg cursor-pointer text-center ${activeHand === 'hours' ? 'bg-sky-950 text-white shadow-sm border-l-2 border-amber-400' : 'text-slate-600'}`}>調整時針</button>
+            <button type="button" onClick={() => setActiveHand('minutes')} className={`py-1 text-[11px] font-bold rounded-lg cursor-pointer text-center ${activeHand === 'minutes' ? 'bg-sky-950 text-white shadow-sm border-l-2 border-amber-400' : 'text-slate-600'}`}>調整分針</button>
           </div>
-
-          <div className="flex bg-slate-200/80 p-0.5 rounded-xl border border-slate-300">
-            <button
-              type="button"
-              onClick={() => {
-                setPeriod('AM');
-                emitChange(hours12, minutes, 'AM');
-              }}
-              className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
-                period === 'AM' ? 'bg-sky-950 text-white shadow-sm' : 'text-slate-600 hover:text-sky-950'
-              }`}
-            >
-              AM
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPeriod('PM');
-                emitChange(hours12, minutes, 'PM');
-              }}
-              className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
-                period === 'PM' ? 'bg-sky-950 text-white shadow-sm' : 'text-slate-600 hover:text-sky-950'
-              }`}
-            >
-              PM
-            </button>
+          <div className="flex bg-slate-200/80 p-0.5 rounded-xl border">
+            <button type="button" onClick={() => { setPeriod('AM'); emitChange(hours12, minutes, 'AM'); }} className={`flex-1 py-1 text-[11px] font-bold rounded-lg cursor-pointer text-center ${period === 'AM' ? 'bg-sky-950 text-white' : 'text-slate-600'}`}>AM</button>
+            <button type="button" onClick={() => { setPeriod('PM'); emitChange(hours12, minutes, 'PM'); }} className={`flex-1 py-1 text-[11px] font-bold rounded-lg cursor-pointer text-center ${period === 'PM' ? 'bg-sky-950 text-white' : 'text-slate-600'}`}>PM</button>
           </div>
         </div>
 
-        {/* Right-Hand Side Clock Face */}
-        <div
-          ref={clockRef}
-          onMouseDown={handlePointerDown}
-          onTouchStart={handlePointerDown}
-          className="relative w-36 h-36 rounded-full bg-white border-2 border-slate-300 shadow-inner flex items-center justify-center cursor-pointer select-none touch-none shrink-0"
-        >
-          {/* Center Pivot Dot */}
+        <div ref={clockRef} onMouseDown={handlePointerDown} onTouchStart={handlePointerDown} className="relative w-36 h-36 rounded-full bg-white border-2 border-slate-300 shadow-inner flex items-center justify-center cursor-pointer select-none touch-none shrink-0">
           <div className="w-2.5 h-2.5 rounded-full bg-sky-950 z-30 shadow"></div>
-
-          {/* Hour Hand */}
-          <div
-            style={{
-              transform: `rotate(${hourAngle}deg)`,
-              transformOrigin: 'bottom center',
-              bottom: '50%',
-              left: 'calc(50% - 2px)',
-            }}
-            className={`absolute w-[3.5px] h-[30px] rounded-t-full transition-transform duration-75 z-20 ${
-              activeHand === 'hours' ? 'bg-sky-900 ring-2 ring-sky-300' : 'bg-sky-950'
-            }`}
-          >
-            <div className="w-3 h-3 rounded-full bg-sky-950 border-2 border-white absolute -top-1.5 -left-[4.5px] shadow"></div>
+          <div style={{ transform: `rotate(${hourAngle}deg)`, transformOrigin: 'bottom center', bottom: '50%', left: 'calc(50% - 2px)' }} className={`absolute w-[3.5px] h-[30px] rounded-t-full z-20 ${activeHand === 'hours' ? 'bg-sky-900 ring-2 ring-sky-300' : 'bg-sky-950'}`}>
+            <div className="w-3 h-3 rounded-full bg-sky-950 border-2 border-white absolute -top-1.5 -left-[4.5px]"></div>
           </div>
-
-          {/* Minute Hand */}
-          <div
-            style={{
-              transform: `rotate(${minuteAngle}deg)`,
-              transformOrigin: 'bottom center',
-              bottom: '50%',
-              left: 'calc(50% - 1.5px)',
-            }}
-            className={`absolute w-[3px] h-[46px] rounded-t-full transition-transform duration-75 z-20 ${
-              activeHand === 'minutes' ? 'bg-amber-600 ring-2 ring-amber-300' : 'bg-sky-950'
-            }`}
-          >
-            <div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-sky-950 absolute -top-2 -left-[7px] shadow"></div>
+          <div style={{ transform: `rotate(${minuteAngle}deg)`, transformOrigin: 'bottom center', bottom: '50%', left: 'calc(50% - 1.5px)' }} className={`absolute w-[3px] h-[46px] rounded-t-full z-20 ${activeHand === 'minutes' ? 'bg-amber-600 ring-2 ring-amber-300' : 'bg-sky-950'}`}>
+            <div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-sky-950 absolute -top-2 -left-[7px]"></div>
           </div>
-
-          {renderAllDialNumbers()}
         </div>
       </div>
     </div>
