@@ -30,6 +30,12 @@ interface ClassOption {
   duration: string;
 }
 
+interface MessageTemplate {
+  message_key: string;
+  title: string;
+  content: string;
+}
+
 interface ParsedExcelRow {
   rowNum: number;
   student_code?: string;
@@ -46,10 +52,19 @@ interface ParsedExcelRow {
 
 type StudentSortField = 'name' | 'gender' | 'school' | 'payment' | 'receipt' | 'phone';
 
+const AVAILABLE_VARIABLES = [
+  { label: '學生中文姓名', tag: '{STUDENTNAME}' },
+  { label: '課程及班別名稱', tag: '{CLASSCATEGORY}' },
+  { label: '上課日期與時間', tag: '{CLASSDATE}' },
+  { label: '就讀學校', tag: '{SCHOOL}' },
+  { label: '聯絡電話', tag: '{PHONE}' },
+];
+
 export default function StudentManagementPage() {
-  const [activeTab, setActiveTab] = useState<'listing' | 'enrolment'>('listing');
+  const [activeTab, setActiveTab] = useState<'listing' | 'enrolment' | 'templates'>('listing');
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [classList, setClassList] = useState<ClassOption[]>([]);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Sorting state
@@ -71,6 +86,11 @@ export default function StudentManagementPage() {
   const [savingManual, setSavingManual] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Template Form State
+  const [newTemplateTitle, setNewTemplateTitle] = useState('');
+  const [newTemplateContent, setNewTemplateContent] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
   // Excel Migration Inline State
   const [showExcelSection, setShowExcelSection] = useState(false);
   const [excelRows, setExcelRows] = useState<ParsedExcelRow[]>([]);
@@ -81,9 +101,7 @@ export default function StudentManagementPage() {
     setLoading(true);
     setFeedback(null);
     try {
-      const { data: studentData, error: studentErr } = await supabase
-        .from('students')
-        .select('*');
+      const { data: studentData, error: studentErr } = await supabase.from('students').select('*');
       if (studentErr) throw studentErr;
       setStudents(studentData || []);
 
@@ -93,8 +111,15 @@ export default function StudentManagementPage() {
         .order('lesson_date', { ascending: true });
       if (classErr) throw classErr;
       setClassList(classesData || []);
+
+      const { data: templateData, error: templateErr } = await supabase
+        .from('message_templates')
+        .select('*')
+        .order('message_key', { ascending: true });
+      if (templateErr) throw templateErr;
+      setTemplates(templateData || []);
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message || '無法載入學員資料' });
+      setFeedback({ type: 'error', message: err.message || '無法載入資料' });
     } finally {
       setLoading(false);
     }
@@ -152,44 +177,71 @@ export default function StudentManagementPage() {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
     const text = encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名與上課通知。`);
-    return `https://wa.me/${fullNumber}?text=${text}`;
+    return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${text}`;
+  };
+
+  // Generate next automatic message key (e.g. MSG-002)
+  const nextMessageKey = useMemo(() => {
+    if (templates.length === 0) return 'MSG-001';
+    const nums = templates.map((t) => parseInt(t.message_key.replace(/\D/g, ''), 10) || 0);
+    const maxNum = Math.max(...nums);
+    return `MSG-${String(maxNum + 1).padStart(3, '0')}`;
+  }, [templates]);
+
+  const handleInsertVariable = (tag: string) => {
+    if (newTemplateContent.length + tag.length > 500) return;
+    setNewTemplateContent((prev) => prev + tag);
+  };
+
+  const handleSaveTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFeedback(null);
+
+    if (!newTemplateTitle.trim()) {
+      setFeedback({ type: 'error', message: '請輸入範本標題名稱' });
+      return;
+    }
+    if (!newTemplateContent.trim()) {
+      setFeedback({ type: 'error', message: '請輸入範本內容' });
+      return;
+    }
+
+    setSavingTemplate(true);
+    try {
+      const { error } = await supabase.from('message_templates').insert([
+        {
+          message_key: nextMessageKey,
+          title: newTemplateTitle.trim(),
+          content: newTemplateContent.trim(),
+        },
+      ]);
+      if (error) throw error;
+
+      setFeedback({ type: 'success', message: `預設通訊範本 [${nextMessageKey}] 新增成功！` });
+      setNewTemplateTitle('');
+      setNewTemplateContent('');
+      await loadInitialData();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err.message || '儲存範本失敗' });
+    } finally {
+      setSavingTemplate(false);
+    }
   };
 
   const validateManualForm = (): boolean => {
     const errors: Record<string, string> = {};
-
     if (!formData.chinese_name.trim()) {
       errors.chinese_name = '請輸入中文姓名';
-    } else if (!/^[\u4e00-\u9fa5a-zA-Z\s]{2,20}$/.test(formData.chinese_name.trim())) {
-      errors.chinese_name = '中文姓名格式不符（長度需介乎 2 至 20 字元）';
     }
-
-    if (formData.english_name.trim() && !/^[A-Za-z\s'-]{2,40}$/.test(formData.english_name.trim())) {
-      errors.english_name = '英文姓名只可包含英文字母、空格或連字號';
-    }
-
     const cleanPhone = formData.phone.replace(/[\s-]/g, '');
     if (!cleanPhone) {
       errors.phone = '請輸入聯絡電話';
     } else if (!/^[4-9]\d{7}$/.test(cleanPhone)) {
       errors.phone = '請輸入有效的 8 位香港電話號碼（4-9 開頭）';
     }
-
     if (!formData.class_code) {
       errors.class_code = '請選擇所屬班別代碼';
     }
-
-    if (formData.receipt_url.trim()) {
-      try {
-        const parsed = new URL(formData.receipt_url.trim());
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          errors.receipt_url = '收據網址必須以 http:// 或 https:// 開頭';
-        }
-      } catch {
-        errors.receipt_url = '請輸入正確的網址格式';
-      }
-    }
-
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -199,10 +251,7 @@ export default function StudentManagementPage() {
     setFeedback(null);
 
     if (!validateManualForm()) {
-      setFeedback({
-        type: 'error',
-        message: '表單填寫有誤，請依各欄位紅色提示文字進行修正後再送出。',
-      });
+      setFeedback({ type: 'error', message: '表單填寫有誤，請修正後再送出。' });
       return;
     }
 
@@ -236,14 +285,9 @@ export default function StudentManagementPage() {
         },
       ]);
 
-      if (error) {
-        if (error.message.includes('unique_student_per_class')) {
-          throw new Error('登記失敗：此學員或電話已在該班別登記，不可重複報名。');
-        }
-        throw error;
-      }
+      if (error) throw error;
 
-      setFeedback({ type: 'success', message: `學員 ${formData.chinese_name} (${newStudentCode}) 登記成功！` });
+      setFeedback({ type: 'success', message: `學員 ${formData.chinese_name} 登記成功！` });
       setFormData({
         chinese_name: '',
         english_name: '',
@@ -254,7 +298,6 @@ export default function StudentManagementPage() {
         payment_status: 'no',
         receipt_url: '',
       });
-      setFormErrors({});
       await loadInitialData();
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || '登記失敗' });
@@ -279,50 +322,30 @@ export default function StudentManagementPage() {
         const rawJson: any[] = XLSX.utils.sheet_to_json(ws);
 
         if (rawJson.length === 0) {
-          setFeedback({ type: 'error', message: '試算表內沒有可讀取的資料列，請確認第一列包含標準表頭。' });
+          setFeedback({ type: 'error', message: '試算表內沒有可讀取的資料列。' });
           return;
         }
 
-        const seenInFile = new Set<string>();
         const mapped: ParsedExcelRow[] = rawJson.map((row, idx) => {
           const rowNum = idx + 2;
           const chinese_name = String(row['chinese_name'] || row['中文姓名'] || row['學生名字'] || '').trim();
-          const english_name = String(row['english_name'] || row['英文姓名'] || '').trim();
           const phone = String(row['phone'] || row['聯絡電話'] || row['電話'] || '').trim();
-          const class_code = String(row['class_code'] || row['班別代碼'] || row['堂別編號'] || '').trim();
-          const student_code = String(row['student_code'] || row['學生編號'] || '').trim() || undefined;
+          const class_code = String(row['class_code'] || row['班別代碼'] || '').trim();
 
           let validationError: string | undefined;
-          if (!chinese_name && !english_name) {
-            validationError = '缺少姓名';
-          } else if (!phone) {
-            validationError = '缺少聯絡電話';
-          } else if (!/^[4-9]\d{7}$/.test(phone.replace(/[\s-]/g, ''))) {
-            validationError = '電話格式錯誤（需為 8 位號碼）';
-          } else if (!class_code) {
-            validationError = '缺少班別代碼';
-          }
-
-          const dupKey = `${phone}_${class_code}`;
-          if (phone && class_code) {
-            if (seenInFile.has(dupKey)) {
-              validationError = `檔案內重複報讀同一班別 (${class_code})`;
-            } else {
-              seenInFile.add(dupKey);
-            }
-          }
+          if (!chinese_name) validationError = '缺少姓名';
+          else if (!phone) validationError = '缺少聯絡電話';
+          else if (!class_code) validationError = '缺少班別代碼';
 
           return {
             rowNum,
-            student_code,
             chinese_name,
-            english_name,
-            school: String(row['school'] || row['就讀學校'] || row['學校'] || '').trim(),
-            gender: String(row['gender'] || row['性別'] || '男').trim(),
+            english_name: String(row['english_name'] || '').trim(),
+            school: String(row['school'] || '').trim(),
+            gender: String(row['gender'] || '男').trim(),
             phone,
             class_code,
-            payment_status: String(row['payment_status'] || row['付款情況'] || 'no').trim().toLowerCase() === 'yes' ? 'yes' : 'no',
-            receipt_url: String(row['receipt_url'] || row['收據檢視'] || row['收據'] || '').trim() || undefined,
+            payment_status: String(row['payment_status'] || 'no').trim().toLowerCase() === 'yes' ? 'yes' : 'no',
             validationError,
           };
         });
@@ -337,19 +360,7 @@ export default function StudentManagementPage() {
 
   const handleConfirmBatchMigrate = async () => {
     if (excelRows.length === 0) return;
-
-    const invalidRows = excelRows.filter((r) => r.validationError);
-    if (invalidRows.length > 0) {
-      setFeedback({
-        type: 'error',
-        message: `檔案內尚有 ${invalidRows.length} 筆資料有誤，請修正表格中標示紅色的項目後再試。`,
-      });
-      return;
-    }
-
     setSavingExcel(true);
-    setFeedback(null);
-
     try {
       const { data: latestRecords } = await supabase
         .from('students')
@@ -364,32 +375,28 @@ export default function StudentManagementPage() {
       }
 
       const payload = excelRows.map((row) => ({
-        student_code: row.student_code || `S${(currentNum++).toString().padStart(10, '0')}`,
+        student_code: `S${(currentNum++).toString().padStart(10, '0')}`,
         chinese_name: row.chinese_name,
         english_name: row.english_name,
-        school: row.school || '',
-        gender: row.gender || '男',
+        school: row.school,
+        gender: row.gender,
         phone: row.phone.replace(/[\s-]/g, ''),
         class_code: row.class_code,
-        payment_status: row.payment_status || 'no',
-        receipt_url: row.receipt_url || null,
+        payment_status: row.payment_status,
         attendance_status: false,
       }));
 
       for (const item of payload) {
-        const { error } = await supabase
-          .from('students')
-          .upsert(item, { onConflict: 'student_code' });
+        const { error } = await supabase.from('students').upsert(item, { onConflict: 'student_code' });
         if (error) throw error;
       }
 
-      setFeedback({ type: 'success', message: `試算表批次匯入成功！共處理 ${payload.length} 筆學員資料。` });
+      setFeedback({ type: 'success', message: `批次匯入成功！共處理 ${payload.length} 筆資料。` });
       setExcelRows([]);
-      setExcelFileName('');
       setShowExcelSection(false);
       await loadInitialData();
     } catch (err: any) {
-      setFeedback({ type: 'error', message: `匯入時發生錯誤: ${err.message}` });
+      setFeedback({ type: 'error', message: `匯入錯誤: ${err.message}` });
     } finally {
       setSavingExcel(false);
     }
@@ -402,13 +409,7 @@ export default function StudentManagementPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center gap-4">
             <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
-              <Image
-                src="/logo.png"
-                alt="Luminous Minds Miss Ann Logo"
-                fill
-                className="object-contain rounded-full"
-                priority
-              />
+              <Image src="/logo.png" alt="Logo" fill className="object-contain rounded-full" priority />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -418,7 +419,7 @@ export default function StudentManagementPage() {
                 <span className="text-xs font-bold text-slate-500">Miss Ann</span>
               </div>
               <h1 className="text-2xl font-black text-sky-950 mt-0.5">學員管理中心</h1>
-              <p className="text-xs text-slate-500">學員名冊瀏覽、個別登記報讀與試算表批次匯入</p>
+              <p className="text-xs text-slate-500">學員名冊瀏覽、預設通訊範本管理與登記報讀</p>
             </div>
           </div>
 
@@ -435,27 +436,25 @@ export default function StudentManagementPage() {
         {/* 頁籤切換 */}
         <div className="flex border-b border-slate-200 bg-white p-1 rounded-2xl shadow-sm">
           <button
-            onClick={() => {
-              setActiveTab('listing');
-              setFeedback(null);
-            }}
+            onClick={() => { setActiveTab('listing'); setFeedback(null); }}
             className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
-              activeTab === 'listing'
-                ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400'
-                : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
+              activeTab === 'listing' ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400' : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
             }`}
           >
             📋 學員名冊列表
           </button>
           <button
-            onClick={() => {
-              setActiveTab('enrolment');
-              setFeedback(null);
-            }}
+            onClick={() => { setActiveTab('templates'); setFeedback(null); }}
             className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
-              activeTab === 'enrolment'
-                ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400'
-                : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
+              activeTab === 'templates' ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400' : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
+            }`}
+          >
+            💬 預設通訊範本管理
+          </button>
+          <button
+            onClick={() => { setActiveTab('enrolment'); setFeedback(null); }}
+            className={`flex-1 py-3 text-sm font-bold rounded-xl transition cursor-pointer ${
+              activeTab === 'enrolment' ? 'bg-sky-950 text-white shadow-md border-b-2 border-amber-400' : 'text-slate-600 hover:text-sky-950 hover:bg-slate-50'
             }`}
           >
             ✍️ 新學員登記報讀
@@ -463,13 +462,7 @@ export default function StudentManagementPage() {
         </div>
 
         {feedback && (
-          <div
-            className={`p-4 rounded-xl text-sm font-medium border flex items-center gap-2 ${
-              feedback.type === 'success'
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                : 'bg-rose-50 text-rose-800 border-rose-200'
-            }`}
-          >
+          <div className={`p-4 rounded-xl text-sm font-medium border flex items-center gap-2 ${feedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
             <span>{feedback.type === 'success' ? '✅' : '⚠️'}</span>
             <span>{feedback.message}</span>
           </div>
@@ -481,119 +474,52 @@ export default function StudentManagementPage() {
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-sky-950 text-white select-none">
                 <tr>
-                  <th
-                    onClick={() => handleSort('name')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                  >
-                    <div className="flex items-center">
-                      <span>學生名字</span>
-                      {renderSortIndicator('name')}
-                    </div>
+                  <th onClick={() => handleSort('name')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>學生名字</span>{renderSortIndicator('name')}</div>
                   </th>
-                  <th
-                    onClick={() => handleSort('gender')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                  >
-                    <div className="flex items-center">
-                      <span>性別</span>
-                      {renderSortIndicator('gender')}
-                    </div>
+                  <th onClick={() => handleSort('gender')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>性別</span>{renderSortIndicator('gender')}</div>
                   </th>
-                  <th
-                    onClick={() => handleSort('school')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                  >
-                    <div className="flex items-center">
-                      <span>就讀學校</span>
-                      {renderSortIndicator('school')}
-                    </div>
+                  <th onClick={() => handleSort('school')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>就讀學校</span>{renderSortIndicator('school')}</div>
                   </th>
-                  <th
-                    onClick={() => handleSort('payment')}
-                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                  >
-                    <div className="flex items-center justify-center">
-                      <span>付款情況</span>
-                      {renderSortIndicator('payment')}
-                    </div>
+                  <th onClick={() => handleSort('payment')} className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center justify-center"><span>付款情況</span>{renderSortIndicator('payment')}</div>
                   </th>
-                  <th
-                    onClick={() => handleSort('receipt')}
-                    className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                  >
-                    <div className="flex items-center justify-center">
-                      <span>收據檢視</span>
-                      {renderSortIndicator('receipt')}
-                    </div>
+                  <th onClick={() => handleSort('receipt')} className="px-4 py-3.5 text-center text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center justify-center"><span>收據檢視</span>{renderSortIndicator('receipt')}</div>
                   </th>
-                  <th
-                    onClick={() => handleSort('phone')}
-                    className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
-                  >
-                    <div className="flex items-center">
-                      <span>聯絡電話</span>
-                      {renderSortIndicator('phone')}
-                    </div>
+                  <th onClick={() => handleSort('phone')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
+                    <div className="flex items-center"><span>聯絡電話</span>{renderSortIndicator('phone')}</div>
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {sortedStudents.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400">
-                      暫無學員登記記錄。
-                    </td>
-                  </tr>
+                  <tr><td colSpan={6} className="py-12 text-center text-slate-400">暫無學員登記記錄。</td></tr>
                 ) : (
                   sortedStudents.map((st) => (
                     <tr key={st.student_code} className="hover:bg-sky-50/40 transition">
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/student/edit/${st.student_code}`}
-                          className="group flex flex-col hover:opacity-80"
-                        >
-                          <span className="font-bold text-sky-950 underline decoration-sky-300 group-hover:text-amber-600">
-                            {st.chinese_name}
-                          </span>
-                          {st.english_name && (
-                            <span className="text-xs text-slate-400">{st.english_name}</span>
-                          )}
+                        <Link href={`/student/edit/${st.student_code}`} className="group flex flex-col hover:opacity-80">
+                          <span className="font-bold text-sky-950 underline decoration-sky-300 group-hover:text-amber-600">{st.chinese_name}</span>
+                          {st.english_name && <span className="text-xs text-slate-400">{st.english_name}</span>}
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{st.gender}</td>
                       <td className="px-4 py-3 text-slate-600">{st.school || '-'}</td>
                       <td className="px-4 py-3 text-center">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${
-                            st.payment_status === 'yes'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
+                        <span className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full ${st.payment_status === 'yes' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                           {st.payment_status === 'yes' ? '已付款' : '未付款'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
                         {st.receipt_url ? (
-                          <a
-                            href={st.receipt_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sky-700 hover:text-sky-900 font-semibold underline text-xs"
-                          >
-                            檢視收據
-                          </a>
-                        ) : (
-                          <span className="text-slate-400 text-xs">無</span>
-                        )}
+                          <a href={st.receipt_url} target="_blank" rel="noreferrer" className="text-sky-700 hover:text-sky-900 font-semibold underline text-xs">檢視收據</a>
+                        ) : <span className="text-slate-400 text-xs">無</span>}
                       </td>
                       <td className="px-4 py-3 font-mono">
-                        <a
-                          href={getWhatsAppLink(st.phone, st.chinese_name)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
-                        >
+                        <a href={getWhatsAppLink(st.phone, st.chinese_name)} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300">
                           {st.phone}
                         </a>
                       </td>
@@ -605,7 +531,119 @@ export default function StudentManagementPage() {
           </div>
         )}
 
-        {/* 頁籤 2: 新學員登記報讀 */}
+        {/* 頁籤 2: 預設通訊範本管理 */}
+        {activeTab === 'templates' && (
+          <div className="space-y-6">
+            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+              <h2 className="text-xl font-bold text-sky-950 mb-1">預設通訊範本管理</h2>
+              <p className="text-xs text-slate-500 mb-6">新增與維護 WhatsApp 提醒訊息範本，支援插入動態變數標籤。</p>
+
+              <form onSubmit={handleSaveTemplate} className="space-y-5" noValidate>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
+                      訊息代碼 <span className="text-xs font-normal text-sky-800">(系統自動生成・唯讀)</span>
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={nextMessageKey}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-mono font-bold text-sky-950 bg-slate-100 cursor-not-allowed select-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
+                      範本標題名稱 <span className="text-rose-600">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newTemplateTitle}
+                      onChange={(e) => setNewTemplateTitle(e.target.value)}
+                      placeholder="例如：上課前溫馨提示"
+                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Draggable / Clickable Variable Chips */}
+                <div className="space-y-2 bg-sky-50/70 p-4 rounded-xl border border-sky-200">
+                  <span className="text-xs font-bold text-sky-950 block">點擊下方變數標籤快速插入至訊息內容：</span>
+                  <div className="flex flex-wrap gap-2">
+                    {AVAILABLE_VARIABLES.map((v) => (
+                      <button
+                        key={v.tag}
+                        type="button"
+                        onClick={() => handleInsertVariable(v.tag)}
+                        className="px-3 py-1.5 bg-white hover:bg-sky-100 text-sky-900 border border-sky-300 rounded-lg text-xs font-mono font-bold shadow-sm transition cursor-pointer"
+                        title={`點擊插入 ${v.label}`}
+                      >
+                        {v.label} <span className="text-amber-600 ml-1">{v.tag}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-800">
+                      訊息內容 <span className="text-rose-600">*</span> <span className="text-slate-400 font-normal">(上限 500 字)</span>
+                    </label>
+                    <span className={`font-mono text-xs font-bold ${newTemplateContent.length > 480 ? 'text-rose-600' : 'text-slate-500'}`}>
+                      {newTemplateContent.length} / 500 字
+                    </span>
+                  </div>
+                  <textarea
+                    rows={6}
+                    maxLength={500}
+                    value={newTemplateContent}
+                    onChange={(e) => setNewTemplateContent(e.target.value)}
+                    placeholder="輸入通訊範本內容..."
+                    className="w-full p-3.5 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none leading-relaxed text-slate-800"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={savingTemplate}
+                  className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
+                >
+                  {savingTemplate ? '正在儲存範本...' : '儲存新預設通訊範本'}
+                </button>
+              </form>
+            </div>
+
+            {/* Existing Templates Table */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-4 border-b border-slate-100 bg-slate-50 font-bold text-sm text-sky-950">
+                現有預設通訊範本清單 ({templates.length})
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-sky-950 text-white text-xs uppercase">
+                    <tr>
+                      <th className="px-4 py-3 text-left">訊息代碼</th>
+                      <th className="px-4 py-3 text-left">範本標題</th>
+                      <th className="px-4 py-3 text-left">訊息內容預覽</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {templates.map((t) => (
+                      <tr key={t.message_key} className="hover:bg-sky-50/40">
+                        <td className="px-4 py-3 font-mono font-bold text-sky-900">{t.message_key}</td>
+                        <td className="px-4 py-3 font-bold text-slate-800">{t.title}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-pre-line font-mono max-w-xl truncate">{t.content}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 頁籤 3: 新學員登記報讀 */}
         {activeTab === 'enrolment' && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
@@ -614,24 +652,15 @@ export default function StudentManagementPage() {
               <form onSubmit={handleManualSubmit} className="space-y-5" noValidate>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      中文姓名 <span className="text-rose-600">*</span>
-                    </label>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">中文姓名 <span className="text-rose-600">*</span></label>
                     <input
                       type="text"
                       value={formData.chinese_name}
-                      onChange={(e) => {
-                        setFormData({ ...formData, chinese_name: e.target.value });
-                        if (formErrors.chinese_name) setFormErrors({ ...formErrors, chinese_name: '' });
-                      }}
+                      onChange={(e) => setFormData({ ...formData, chinese_name: e.target.value })}
                       placeholder="例如：陳大文"
-                      className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                        formErrors.chinese_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
-                      }`}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     />
-                    {formErrors.chinese_name && (
-                      <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.chinese_name}</p>
-                    )}
+                    {formErrors.chinese_name && <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.chinese_name}</p>}
                   </div>
 
                   <div>
@@ -639,18 +668,10 @@ export default function StudentManagementPage() {
                     <input
                       type="text"
                       value={formData.english_name}
-                      onChange={(e) => {
-                        setFormData({ ...formData, english_name: e.target.value });
-                        if (formErrors.english_name) setFormErrors({ ...formErrors, english_name: '' });
-                      }}
+                      onChange={(e) => setFormData({ ...formData, english_name: e.target.value })}
                       placeholder="例如：David Chan"
-                      className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                        formErrors.english_name ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
-                      }`}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     />
-                    {formErrors.english_name && (
-                      <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.english_name}</p>
-                    )}
                   </div>
                 </div>
 
@@ -668,25 +689,16 @@ export default function StudentManagementPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      聯絡電話 (香港 8 位號碼) <span className="text-rose-600">*</span>
-                    </label>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">聯絡電話 (8位號碼) <span className="text-rose-600">*</span></label>
                     <input
                       type="tel"
                       maxLength={8}
                       value={formData.phone}
-                      onChange={(e) => {
-                        setFormData({ ...formData, phone: e.target.value });
-                        if (formErrors.phone) setFormErrors({ ...formErrors, phone: '' });
-                      }}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       placeholder="例如：91234567"
-                      className={`w-full px-3 py-2 border rounded-xl text-sm font-mono focus:outline-none transition ${
-                        formErrors.phone ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
-                      }`}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-mono focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     />
-                    {formErrors.phone && (
-                      <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.phone}</p>
-                    )}
+                    {formErrors.phone && <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.phone}</p>}
                   </div>
                 </div>
 
@@ -703,29 +715,18 @@ export default function StudentManagementPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-800 mb-1">
-                      所屬班別 <span className="text-rose-600">*</span>
-                    </label>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">所屬班別 <span className="text-rose-600">*</span></label>
                     <select
                       value={formData.class_code}
-                      onChange={(e) => {
-                        setFormData({ ...formData, class_code: e.target.value });
-                        if (formErrors.class_code) setFormErrors({ ...formErrors, class_code: '' });
-                      }}
-                      className={`w-full px-3 py-2 border rounded-xl text-sm bg-white font-mono focus:outline-none transition ${
-                        formErrors.class_code ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
-                      }`}
+                      onChange={(e) => setFormData({ ...formData, class_code: e.target.value })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm bg-white font-mono focus:ring-2 focus:ring-sky-700 focus:outline-none"
                     >
                       <option value="">請選擇班別代碼</option>
                       {classList.map((c) => (
-                        <option key={c.class_code} value={c.class_code}>
-                          {c.class_code} ({c.class_name})
-                        </option>
+                        <option key={c.class_code} value={c.class_code}>{c.class_code} ({c.class_name})</option>
                       ))}
                     </select>
-                    {formErrors.class_code && (
-                      <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.class_code}</p>
-                    )}
+                    {formErrors.class_code && <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.class_code}</p>}
                   </div>
 
                   <div>
@@ -741,143 +742,46 @@ export default function StudentManagementPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">收據連結</label>
-                  <input
-                    type="url"
-                    value={formData.receipt_url}
-                    onChange={(e) => {
-                      setFormData({ ...formData, receipt_url: e.target.value });
-                      if (formErrors.receipt_url) setFormErrors({ ...formErrors, receipt_url: '' });
-                    }}
-                    placeholder="https://example.com/receipt.jpg"
-                    className={`w-full px-3 py-2 border rounded-xl text-sm focus:outline-none transition ${
-                      formErrors.receipt_url ? 'border-rose-400 bg-rose-50/30' : 'border-slate-300 focus:ring-2 focus:ring-sky-700'
-                    }`}
-                  />
-                  {formErrors.receipt_url && (
-                    <p className="mt-1 text-xs text-rose-600 font-semibold">{formErrors.receipt_url}</p>
-                  )}
-                </div>
+                <button
+                  type="submit"
+                  disabled={savingManual}
+                  className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
+                >
+                  {savingManual ? '正在登記...' : '確認新增學員'}
+                </button>
 
-                <div className="pt-4 space-y-3">
+                <div className="pt-2 border-t border-slate-100 text-center">
                   <button
-                    type="submit"
-                    disabled={savingManual}
-                    className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
+                    type="button"
+                    onClick={() => setShowExcelSection(!showExcelSection)}
+                    className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-sm transition cursor-pointer"
                   >
-                    {savingManual ? '正在登記...' : '確認新增學員'}
+                    {showExcelSection ? '收合試算表批次匯入' : '批次試算表遷移匯入'}
                   </button>
-
-                  <div className="pt-2 border-t border-slate-100 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setShowExcelSection(!showExcelSection)}
-                      className="w-full py-2.5 bg-amber-50/80 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-sm transition cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <span>📥</span>
-                      <span>
-                        {showExcelSection
-                          ? '收合試算表批次匯入功能'
-                          : '批次試算表遷移 (展開檔案匯入區塊)'}
-                      </span>
-                    </button>
-                  </div>
                 </div>
               </form>
             </div>
 
-            {/* 展開式試算表批次匯入 */}
             {showExcelSection && (
               <div className="bg-white p-8 rounded-2xl shadow-sm border border-amber-200 space-y-5">
-                <div className="border-b pb-3">
-                  <h3 className="text-lg font-bold text-sky-950">試算表批次遷移匯入</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    支援欄位：學生編號 (選填), 中文姓名, 英文姓名, 就讀學校, 性別, 聯絡電話, 班別代碼, 付款情況
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-2">選擇試算表檔案</label>
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    onChange={handleExcelUpload}
-                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-900 hover:file:bg-sky-100 cursor-pointer"
-                  />
-                </div>
+                <h3 className="text-lg font-bold text-sky-950">試算表批次遷移匯入</h3>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleExcelUpload}
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-900 hover:file:bg-sky-100 cursor-pointer"
+                />
 
                 {excelRows.length > 0 && (
                   <div className="space-y-4 pt-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-bold text-slate-800">
-                        檔案預覽：{excelFileName} (共 {excelRows.length} 筆資料)
-                      </span>
-                      {excelRows.some((r) => r.validationError) && (
-                        <span className="text-xs text-rose-700 font-bold bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
-                          發現欄位格式未符規範
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="overflow-x-auto max-h-80 border border-slate-200 rounded-xl">
-                      <table className="min-w-full divide-y divide-slate-200 text-xs text-left">
-                        <thead className="bg-slate-100 text-slate-700 sticky top-0 font-bold">
-                          <tr>
-                            <th className="p-2.5">列號</th>
-                            <th className="p-2.5">學員編號</th>
-                            <th className="p-2.5">學員姓名</th>
-                            <th className="p-2.5">性別</th>
-                            <th className="p-2.5">學校</th>
-                            <th className="p-2.5">電話</th>
-                            <th className="p-2.5">班別代碼</th>
-                            <th className="p-2.5">付款情況</th>
-                            <th className="p-2.5">驗證狀態</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {excelRows.map((r, i) => (
-                            <tr key={i} className={r.validationError ? 'bg-rose-50/70' : 'hover:bg-slate-50'}>
-                              <td className="p-2.5 font-mono text-slate-400">#{r.rowNum}</td>
-                              <td className="p-2.5 font-mono text-slate-600">{r.student_code || '(自動遞增)'}</td>
-                              <td className="p-2.5 font-bold text-slate-900">
-                                {r.chinese_name} {r.english_name ? `(${r.english_name})` : ''}
-                              </td>
-                              <td className="p-2.5">{r.gender}</td>
-                              <td className="p-2.5">{r.school || '-'}</td>
-                              <td className="p-2.5 font-mono">{r.phone}</td>
-                              <td className="p-2.5 font-mono font-bold text-sky-800">{r.class_code}</td>
-                              <td className="p-2.5">
-                                <span
-                                  className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                                    r.payment_status === 'yes'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  {r.payment_status === 'yes' ? '已付款' : '未付款'}
-                                </span>
-                              </td>
-                              <td className="p-2.5 font-medium">
-                                {r.validationError ? (
-                                  <span className="text-rose-600 font-bold">❌ {r.validationError}</span>
-                                ) : (
-                                  <span className="text-emerald-600 font-semibold">✓ 通過</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
+                    <span className="text-sm font-bold text-slate-800">檔案預覽 (共 {excelRows.length} 筆)</span>
                     <button
                       type="button"
                       disabled={savingExcel}
                       onClick={handleConfirmBatchMigrate}
-                      className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 disabled:opacity-50 cursor-pointer"
+                      className="w-full py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold rounded-xl text-sm shadow transition border-b-2 border-amber-400 cursor-pointer"
                     >
-                      {savingExcel ? '正在寫入資料庫...' : '確認批次寫入資料庫'}
+                      {savingExcel ? '正在寫入...' : '確認批次寫入資料庫'}
                     </button>
                   </div>
                 )}
