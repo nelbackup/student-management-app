@@ -53,6 +53,7 @@ export default function StudentManagementPage() {
   const [activeTab, setActiveTab] = useState<'listing' | 'enrolment'>('listing');
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [classList, setClassList] = useState<ClassOption[]>([]);
+  const [msg001Template, setMsg001Template] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   const [sortField, setSortField] = useState<StudentSortField>('name');
@@ -128,6 +129,17 @@ export default function StudentManagementPage() {
       }));
 
       setClassList(aggregated);
+
+      // Fetch MSG-001 template for student listing WhatsApp buttons
+      const { data: tmpl } = await supabase
+        .from('message_templates')
+        .select('content')
+        .eq('message_key', 'MSG-001')
+        .single();
+
+      if (tmpl) {
+        setMsg001Template(tmpl.content);
+      }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message });
     } finally {
@@ -187,12 +199,32 @@ export default function StudentManagementPage() {
     return <span className="ml-1 text-amber-300 font-bold">{sortAsc ? '▲' : '▼'}</span>;
   };
 
-  const getWhatsAppLink = (phone: string, studentName: string) => {
-    const cleaned = phone.replace(/[^0-9]/g, '');
+  // Generate WhatsApp Web link reusing session for MSG-001
+  const getWhatsAppWebLinkForStudent = (st: StudentRecord) => {
+    const cleaned = (st.phone || '').replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
-    return `https://wa.me/${fullNumber}?text=${encodeURIComponent(
-      `您好，這是關於 ${studentName} 的課堂點名與上課通知。`
-    )}`;
+
+    const enrolledClass = classList.find((c) => c.class_code === st.class_code);
+    const classCategory = enrolledClass ? `${enrolledClass.class_name} [${enrolledClass.class_code}]` : '未分班課程';
+    const classDate = enrolledClass ? `${enrolledClass.lesson_date} (${enrolledClass.duration})` : '待定';
+
+    const fallbackTemplate = `家長您好~~~
+溫馨提示 ({CLASSCATEGORY}) : 
+上課時間: {CLASSDATE} (請家長5分鐘前到達)
+上課地點: 尖沙咀漆咸道南67-71號 安年大廈 7樓
+
+明天見~~`;
+
+    const activeTemplate = msg001Template || fallbackTemplate;
+
+    const message = activeTemplate
+      .replace(/{STUDENTNAME}/g, st.chinese_name)
+      .replace(/{CLASSCATEGORY}/g, classCategory)
+      .replace(/{CLASSDATE}/g, classDate)
+      .replace(/{SCHOOL}/g, st.school || '未填寫學校')
+      .replace(/{PHONE}/g, st.phone);
+
+    return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${encodeURIComponent(message)}`;
   };
 
   const validateManualForm = (): boolean => {
@@ -409,7 +441,7 @@ export default function StudentManagementPage() {
           </div>
         )}
 
-        {/* TAB 1: 學員名冊列表 */}
+        {/* TAB 1: 學員名冊列表 (WhatsApp button with session reuse targeting whatsapp_web_session) */}
         {activeTab === 'listing' && (
           <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -431,7 +463,7 @@ export default function StudentManagementPage() {
                     <div className="flex items-center justify-center"><span>收據檢視</span>{renderSortIndicator('receipt')}</div>
                   </th>
                   <th onClick={() => handleSort('phone')} className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center"><span>聯絡電話</span>{renderSortIndicator('phone')}</div>
+                    <div className="flex items-center"><span>聯絡電話 (發送 MSG-001)</span>{renderSortIndicator('phone')}</div>
                   </th>
                 </tr>
               </thead>
@@ -462,9 +494,19 @@ export default function StudentManagementPage() {
                         ) : <span className="text-slate-400 text-xs">無</span>}
                       </td>
                       <td className="px-4 py-3 font-mono">
-                        <a href={getWhatsAppLink(st.phone, st.chinese_name)} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300">
-                          {st.phone}
-                        </a>
+                        {st.phone ? (
+                          <a
+                            href={getWhatsAppWebLinkForStudent(st)}
+                            target="whatsapp_web_session"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer"
+                            title="透過 WhatsApp 傳送 MSG-001 範本訊息 (重用現有工作階段)"
+                          >
+                            <span>💬</span> WhatsApp {st.phone}
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 text-xs">無電話</span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -474,7 +516,7 @@ export default function StudentManagementPage() {
           </div>
         )}
 
-        {/* TAB 2: 新學員登記報讀 (Divided into Three Sections) */}
+        {/* TAB 2: 新學員登記報讀 */}
         {activeTab === 'enrolment' && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
