@@ -264,9 +264,9 @@ export default function RosterPage() {
     }
   };
 
-  // Generate WhatsApp Web link reusing session for MSG-002
-  const getWhatsAppWebLinkForStudent = (student: Student) => {
-    const cleaned = student.phone.replace(/[^0-9]/g, '');
+  // Generate WhatsApp link using MSG-002 template matching edit page session handling
+  const getWhatsAppLinkForStudent = (student: Student) => {
+    const cleaned = (student.phone || '').replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
 
     const enrolledClass = allClasses.find((c) => c.class_code === student.class_code);
@@ -287,7 +287,7 @@ export default function RosterPage() {
       .replace(/{SCHOOL}/g, student.school || '未填寫學校')
       .replace(/{PHONE}/g, student.phone);
 
-    return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${encodeURIComponent(message)}`;
+    return `https://wa.me/${fullNumber}?text=${encodeURIComponent(message)}`;
   };
 
   const renderSortIndicator = (field: SortField) => {
@@ -545,11 +545,11 @@ export default function RosterPage() {
                     <td className="px-4 py-3 font-mono">
                       {st.phone ? (
                         <a
-                          href={getWhatsAppWebLinkForStudent(st)}
-                          target="whatsapp_web_session"
+                          href={getWhatsAppLinkForStudent(st)}
+                          target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition cursor-pointer"
-                          title="透過 WhatsApp 傳送 MSG-002 範本訊息 (重用現有工作階段)"
+                          title="透過 WhatsApp 傳送 MSG-002 範本訊息"
                         >
                           <span>💬</span> WhatsApp {st.phone}
                         </a>
