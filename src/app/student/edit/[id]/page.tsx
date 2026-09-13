@@ -71,7 +71,6 @@ export default function EditStudentPage() {
         if (classErr) throw classErr;
         setAvailableClasses(classList || []);
 
-        // Fetch MSG-001 template explicitly for student edit page
         const { data: tmpl, error: tmplErr } = await supabase
           .from('message_templates')
           .select('content')
@@ -113,8 +112,8 @@ export default function EditStudentPage() {
     loadData();
   }, [studentCode]);
 
-  // Generate WhatsApp Web link using MSG-001 template and reuse session
-  const getWhatsAppWebLink = (phone: string) => {
+  // Generate native WhatsApp Desktop Client link (whatsapp://send)
+  const getWhatsAppDesktopLink = (phone: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
 
@@ -138,7 +137,8 @@ export default function EditStudentPage() {
       .replace(/{SCHOOL}/g, form.school || '未填寫學校')
       .replace(/{PHONE}/g, form.phone);
 
-    return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${encodeURIComponent(message)}`;
+    // Using whatsapp:// protocol directly calls up the installed WhatsApp Desktop application
+    return `whatsapp://send?phone=${fullNumber}&text=${encodeURIComponent(message)}`;
   };
 
   const isSessionExpired = (lessonDate: string, durationStr: string) => {
@@ -437,25 +437,22 @@ export default function EditStudentPage() {
               </div>
             </div>
 
-            {/* WhatsApp 按鈕 (發送 MSG-001 範本，重用現有工作階段) */}
+            {/* WhatsApp Desktop App Button (Labeled "WhatsApp {phone}") */}
             <div className="pt-2">
               <label className="block text-sm font-bold text-slate-800 mb-1.5">
-                聯絡電話 (點擊透過 WhatsApp Web 發送 MSG-001 提示)
+                快速通訊 (直接呼叫 WhatsApp 桌面客戶端發送 MSG-001)
               </label>
-              <div className="flex items-center gap-3">
-                <span className="font-mono font-bold text-slate-700 bg-slate-100 px-3.5 py-2.5 rounded-xl border border-slate-200">
-                  {form.phone || '未填寫電話'}
-                </span>
-                {form.phone && (
+              <div>
+                {form.phone ? (
                   <a
-                    href={getWhatsAppWebLink(form.phone)}
-                    target="whatsapp_web_session"
-                    rel="noreferrer"
+                    href={getWhatsAppDesktopLink(form.phone)}
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition cursor-pointer"
-                    title="發送 MSG-001 預設範本訊息 (重用工作階段)"
+                    title="直接透過 WhatsApp 桌面應用程式傳送 MSG-001 範本訊息"
                   >
-                    <span>💬</span> WhatsApp
+                    <span>💬</span> WhatsApp {form.phone}
                   </a>
+                ) : (
+                  <span className="text-xs text-slate-400 italic">請先填寫聯絡電話以啟用 WhatsApp 快捷鍵</span>
                 )}
               </div>
             </div>
