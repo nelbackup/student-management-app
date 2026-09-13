@@ -228,11 +228,6 @@ function ClassesAdminContent() {
     return sortClassList(available, assignClassSortField, assignClassSortAsc);
   }, [classList, assignClassSortField, assignClassSortAsc]);
 
-  const registeredStudentsOfSelectedClass = useMemo(() => {
-    if (!selectedClassForAssign) return [];
-    return students.filter((s) => s.class_code === selectedClassForAssign && s.student_code !== preselectedStudent);
-  }, [students, selectedClassForAssign, preselectedStudent]);
-
   const popupClassStudents = useMemo(() => {
     if (!viewingClassStudents) return [];
     return students.filter((s) => s.class_code === viewingClassStudents.class_code);
@@ -245,16 +240,6 @@ function ClassesAdminContent() {
     const cleaned = (phone || '').replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
     return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名與上課通知。`)}`;
-  };
-
-  const handleClassSort = (field: ClassSortField) => {
-    if (classSortField === field) setClassSortAsc(!classSortAsc);
-    else { setClassSortField(field); setClassSortAsc(true); }
-  };
-
-  const renderSortArrow = (current: string, active: string, asc: boolean) => {
-    if (current !== active) return <span className="ml-1 text-sky-200 opacity-60">↕</span>;
-    return <span className="ml-1 text-amber-300 font-bold">{asc ? '▲' : '▼'}</span>;
   };
 
   const handleOpenCreate = () => {
@@ -272,6 +257,56 @@ function ClassesAdminContent() {
     setSessionDates(parsedDates);
     setFormData(cls);
     setModalMode('edit');
+  };
+
+  const handleAddSessionDate = () => {
+    const lastDate = sessionDates[sessionDates.length - 1] || '2026-09-12';
+    const nextDate = new Date(lastDate);
+    nextDate.setDate(nextDate.getDate() + 7);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+
+    const updated = [...sessionDates, nextDateStr];
+    setSessionDates(updated);
+    setFormData((prev) => ({ ...prev, lesson_date: updated.join(', ') }));
+  };
+
+  const handleRemoveSessionDate = (index: number) => {
+    if (sessionDates.length <= 1) return;
+    const updated = sessionDates.filter((_, i) => i !== index);
+    setSessionDates(updated);
+    const primaryDate = updated[0] || '2026-09-12';
+
+    setFormData((prev) => ({
+      ...prev,
+      lesson_date: updated.join(', '),
+      class_code: generateDynamicClassCode(primaryDate, prev.category, prev.class_code),
+    }));
+  };
+
+  const handleSessionDateChange = (index: number, newDate: string) => {
+    const updated = [...sessionDates];
+    updated[index] = newDate;
+    setSessionDates(updated);
+
+    const primaryDate = updated[0] || newDate;
+    const nextCode = generateDynamicClassCode(primaryDate, formData.category, formData.class_code);
+
+    setFormData((prev) => ({
+      ...prev,
+      lesson_date: updated.join(', '),
+      class_code: nextCode,
+    }));
+  };
+
+  const handleCategoryChange = (newCategory: string) => {
+    const primaryDate = sessionDates[0] || formData.lesson_date || '2026-09-12';
+    const nextCode = generateDynamicClassCode(primaryDate, newCategory, modalMode === 'edit' ? formData.class_code : undefined);
+
+    setFormData((prev) => ({
+      ...prev,
+      category: newCategory,
+      class_code: nextCode,
+    }));
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -355,7 +390,6 @@ function ClassesAdminContent() {
   return (
     <div className="min-h-screen bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Requirement 2: Moved "返回點名名冊" button to the right most at the top */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center gap-4">
             <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
@@ -370,10 +404,10 @@ function ClassesAdminContent() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <Link href="/roster" className="px-4 py-2 text-sm font-semibold text-sky-900 bg-white hover:bg-sky-50 rounded-xl border border-sky-200 shadow-sm transition">返回點名名冊</Link>
             {viewTab === 'admin' && (
               <button onClick={handleOpenCreate} className="px-4 py-2 bg-sky-950 hover:bg-sky-900 text-white text-sm font-bold rounded-xl shadow-sm transition cursor-pointer border-b-2 border-amber-400">+ 新增課程</button>
             )}
-            <Link href="/roster" className="px-4 py-2 text-sm font-semibold text-sky-900 bg-white hover:bg-sky-50 rounded-xl border border-sky-200 shadow-sm transition">返回點名名冊</Link>
           </div>
         </div>
 
@@ -397,29 +431,14 @@ function ClassesAdminContent() {
             <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
               <thead className="bg-sky-950 text-white text-xs font-semibold uppercase select-none">
                 <tr>
-                  {/* Requirement 2: Table column sorting function on headers */}
-                  <th onClick={() => handleClassSort('class_code')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center"><span>課程編號</span>{renderSortArrow('class_code', classSortField, classSortAsc)}</div>
-                  </th>
-                  <th onClick={() => handleClassSort('category')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center"><span>課程類別</span>{renderSortArrow('category', classSortField, classSortAsc)}</div>
-                  </th>
-                  <th onClick={() => handleClassSort('class_name')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center"><span>班別名稱</span>{renderSortArrow('class_name', classSortField, classSortAsc)}</div>
-                  </th>
-                  <th onClick={() => handleClassSort('lesson_date')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center"><span>上課日期</span>{renderSortArrow('lesson_date', classSortField, classSortAsc)}</div>
-                  </th>
-                  <th onClick={() => handleClassSort('duration')} className="px-4 py-3 cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center"><span>上課時間</span>{renderSortArrow('duration', classSortField, classSortAsc)}</div>
-                  </th>
+                  <th onClick={() => setClassSortField('class_code')} className="px-4 py-3 cursor-pointer">課程編號</th>
+                  <th className="px-4 py-3">課程類別</th>
+                  <th className="px-4 py-3">班別名稱</th>
+                  <th className="px-4 py-3">上課日期</th>
+                  <th className="px-4 py-3">上課時間</th>
                   <th className="px-4 py-3">課堂詳情</th>
-                  <th onClick={() => handleClassSort('max_capacity')} className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center justify-center"><span>學額上限</span>{renderSortArrow('max_capacity', classSortField, classSortAsc)}</div>
-                  </th>
-                  <th onClick={() => handleClassSort('enrolled_count')} className="px-4 py-3 text-center cursor-pointer hover:bg-sky-900 transition">
-                    <div className="flex items-center justify-center"><span>已報名人數</span>{renderSortArrow('enrolled_count', classSortField, classSortAsc)}</div>
-                  </th>
+                  <th className="px-4 py-3 text-center">學額上限</th>
+                  <th className="px-4 py-3 text-center">已報名人數</th>
                   <th className="px-4 py-3 text-center">操作</th>
                 </tr>
               </thead>
@@ -496,7 +515,7 @@ function ClassesAdminContent() {
               <div className="text-xs text-slate-600">
                 調配學員：<span className="font-bold text-sky-950">{currentTargetStudent?.chinese_name}</span> | 目標班別：<span className="font-mono font-bold text-sky-800">{selectedClassForAssign || '未選取'}</span>
               </div>
-              <button disabled={assigning || !selectedClassForAssign} onClick={handleAssignSubmit} className="px-8 py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold text-sm rounded-xl shadow cursor-pointer">
+              <button disabled={assigning || !selectedClassForAssign || !currentTargetStudent} onClick={handleAssignSubmit} className="px-8 py-3 bg-sky-950 hover:bg-sky-900 text-white font-bold text-sm rounded-xl shadow cursor-pointer">
                 {assigning ? '儲存中...' : '確認儲存學員分班指派'}
               </button>
             </div>
@@ -544,21 +563,47 @@ function ClassesAdminContent() {
 
         {modalMode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8">
-              <h3 className="text-xl font-bold text-sky-950 mb-4 pb-2 border-b">{modalMode === 'create' ? '新增課程資料' : '修改課程'}</h3>
+            <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl my-8 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b">
+                <h3 className="text-xl font-bold text-sky-950">{modalMode === 'create' ? '新增課程資料' : '修改課程'}</h3>
+                <button type="button" onClick={() => setModalMode(null)} className="text-slate-400 hover:text-slate-600 text-xl font-bold cursor-pointer">✕</button>
+              </div>
+
               <form onSubmit={handleFormSubmit} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-800 mb-1">班別名稱</label>
                   <input type="text" value={formData.class_name} onChange={(e) => setFormData({ ...formData, class_name: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-800 mb-1">學額上限</label>
                   <input type="number" value={formData.max_capacity} onChange={(e) => setFormData({ ...formData, max_capacity: parseInt(e.target.value) || 0 })} className="w-full px-3 py-2 border rounded-xl text-sm" />
                 </div>
+
+                {/* Multiple Session Dates Section */}
+                <div className="space-y-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-800">📅 上課堂數日期設定 *</label>
+                    <button type="button" onClick={handleAddSessionDate} className="text-xs font-bold text-sky-900 bg-white px-2.5 py-1 rounded-lg border cursor-pointer">+ 增加課堂日期</button>
+                  </div>
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {sessionDates.map((d, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-slate-400 w-14">第 {index + 1} 堂:</span>
+                        <input type="date" value={d} onChange={(e) => handleSessionDateChange(index, e.target.value)} className="flex-1 px-3 py-1.5 border rounded-xl text-xs font-mono bg-white" />
+                        {sessionDates.length > 1 && (
+                          <button type="button" onClick={() => handleRemoveSessionDate(index)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs">✕</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-800 mb-1">上課時段</label>
                   <AnalogClockPicker label="時段設定" value={formData.duration.split('-')[0].trim()} onChange={(newStart) => setFormData({ ...formData, duration: `${newStart} - 16:00` })} />
                 </div>
+
                 <div className="flex justify-end gap-3 pt-4 border-t">
                   <button type="button" onClick={() => setModalMode(null)} className="px-4 py-2 text-sm text-slate-600 cursor-pointer">取消</button>
                   <button type="submit" disabled={saving} className="px-6 py-2 bg-sky-950 text-white font-bold rounded-xl text-sm cursor-pointer">{saving ? '儲存中...' : '儲存變更'}</button>
