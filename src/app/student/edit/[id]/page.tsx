@@ -112,8 +112,8 @@ export default function EditStudentPage() {
     loadData();
   }, [studentCode]);
 
-  // Generate native WhatsApp Desktop Client link (whatsapp://send)
-  const getWhatsAppDesktopLink = (phone: string) => {
+  // Generate WhatsApp link using wa.me protocol to seamlessly open app or web
+  const getWhatsAppLink = (phone: string) => {
     const cleaned = phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
 
@@ -137,8 +137,7 @@ export default function EditStudentPage() {
       .replace(/{SCHOOL}/g, form.school || '未填寫學校')
       .replace(/{PHONE}/g, form.phone);
 
-    // Using whatsapp:// protocol directly calls up the installed WhatsApp Desktop application
-    return `whatsapp://send?phone=${fullNumber}&text=${encodeURIComponent(message)}`;
+    return `https://wa.me/${fullNumber}?text=${encodeURIComponent(message)}`;
   };
 
   const isSessionExpired = (lessonDate: string, durationStr: string) => {
@@ -437,17 +436,19 @@ export default function EditStudentPage() {
               </div>
             </div>
 
-            {/* WhatsApp Desktop App Button (Labeled "WhatsApp {phone}") */}
+            {/* WhatsApp Button (Labeled "WhatsApp {phone}") */}
             <div className="pt-2">
               <label className="block text-sm font-bold text-slate-800 mb-1.5">
-                快速通訊 (直接呼叫 WhatsApp 桌面客戶端發送 MSG-001)
+                快速通訊 (發送 MSG-001 範本)
               </label>
               <div>
                 {form.phone ? (
                   <a
-                    href={getWhatsAppDesktopLink(form.phone)}
+                    href={getWhatsAppLink(form.phone)}
+                    target="_blank"
+                    rel="noreferrer"
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow transition cursor-pointer"
-                    title="直接透過 WhatsApp 桌面應用程式傳送 MSG-001 範本訊息"
+                    title="透過 WhatsApp 傳送 MSG-001 範本訊息"
                   >
                     <span>💬</span> WhatsApp {form.phone}
                   </a>
