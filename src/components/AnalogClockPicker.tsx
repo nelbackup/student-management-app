@@ -72,12 +72,10 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
     if (angleRad < 0) angleRad += 2 * Math.PI;
     const angleDeg = (angleRad * 180) / Math.PI;
 
-    // If user clicked closer to center, or active hand is hours, update hours; else minutes
-    // Or respect active tab toggle. Let's respect activeHand toggle or distance if intuitive.
     let targetHand = activeHand;
-    if (distance < 38) {
+    if (distance < 36) {
       targetHand = 'hours';
-    } else if (distance > 58) {
+    } else if (distance > 54) {
       targetHand = 'minutes';
     }
 
@@ -127,21 +125,18 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
     };
   }, [isDragging, activeHand, hours12, minutes, period]);
 
-  // Hand Angles
   const hourAngle = (hours12 % 12) * 30 + (minutes / 60) * 30;
   const minuteAngle = minutes * 6;
 
-  // Render both 12-hour numbers (inner circle) and 5-minute intervals (outer circle)
   const renderAllDialNumbers = () => {
     const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
     const minutesMark = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
     return (
       <>
-        {/* Hour Numbers (Inner Ring) */}
         {hours.map((num) => {
           const angle = (num % 12) * 30 * (Math.PI / 180);
-          const radius = 46;
+          const radius = 38;
           const x = Math.sin(angle) * radius;
           const y = -Math.cos(angle) * radius;
           const isSelected = hours12 === num;
@@ -150,7 +145,7 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
             <span
               key={`h-${num}`}
               style={{ transform: `translate(${x}px, ${y}px)` }}
-              className={`absolute text-[11px] font-bold select-none flex items-center justify-center w-5 h-5 rounded-full transition-colors ${
+              className={`absolute text-[10px] font-bold select-none flex items-center justify-center w-4 h-4 rounded-full transition-colors ${
                 isSelected && activeHand === 'hours'
                   ? 'bg-sky-950 text-white shadow-sm'
                   : 'text-slate-700 hover:text-sky-950'
@@ -161,10 +156,9 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
           );
         })}
 
-        {/* Minute Numbers (Outer Ring) */}
         {minutesMark.map((num) => {
           const angle = num * 6 * (Math.PI / 180);
-          const radius = 68;
+          const radius = 58;
           const x = Math.sin(angle) * radius;
           const y = -Math.cos(angle) * radius;
           const isSelected = minutes === num;
@@ -173,7 +167,7 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
             <span
               key={`m-${num}`}
               style={{ transform: `translate(${x}px, ${y}px)` }}
-              className={`absolute text-[10px] font-mono select-none flex items-center justify-center w-5 h-5 rounded-full transition-colors ${
+              className={`absolute text-[9px] font-mono select-none flex items-center justify-center w-4 h-4 rounded-full transition-colors ${
                 isSelected && activeHand === 'minutes'
                   ? 'bg-amber-500 text-sky-950 font-black shadow-sm'
                   : 'text-slate-400 hover:text-slate-700'
@@ -188,124 +182,120 @@ export default function AnalogClockPicker({ label, value, onChange }: AnalogCloc
   };
 
   return (
-    <div className="bg-slate-50/80 border border-slate-200 p-3.5 rounded-2xl flex flex-col items-center shadow-sm w-full">
-      {/* Top Header: Label & Time Display Badge */}
-      <div className="flex items-center justify-between w-full mb-3">
+    <div className="bg-slate-50/90 border border-slate-200 p-3 rounded-2xl flex flex-col shadow-sm w-full">
+      {/* Header Row */}
+      <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200">
         <span className="text-xs font-black text-sky-950">{label}</span>
-        <div className="px-2.5 py-1 bg-white border border-sky-200 rounded-lg shadow-sm">
-          <span className="font-mono text-sm font-black text-sky-950">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs font-black text-sky-950 bg-white px-2 py-0.5 rounded border border-sky-200 shadow-sm">
             {String(hours12).padStart(2, '0')}:{String(minutes).padStart(2, '0')}
           </span>
-          <span className="ml-1 text-[11px] font-bold text-amber-600">{period}</span>
+          <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+            {period}
+          </span>
         </div>
       </div>
 
-      {/* Hand Focus Toggle & AM/PM */}
-      <div className="flex items-center justify-between w-full mb-3 gap-2">
-        <div className="inline-flex bg-slate-200/80 p-0.5 rounded-xl border border-slate-300">
-          <button
-            type="button"
-            onClick={() => setActiveHand('hours')}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-              activeHand === 'hours'
-                ? 'bg-sky-950 text-white shadow-sm border-b-2 border-amber-400'
-                : 'text-slate-600 hover:text-sky-950'
-            }`}
-          >
-            調整時針
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveHand('minutes')}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-              activeHand === 'minutes'
-                ? 'bg-sky-950 text-white shadow-sm border-b-2 border-amber-400'
-                : 'text-slate-600 hover:text-sky-950'
-            }`}
-          >
-            調整分針
-          </button>
+      {/* Main Body: Left Controls, Right Clock Face */}
+      <div className="flex items-center justify-between gap-3">
+        {/* Left Hand Controls & AM/PM */}
+        <div className="flex flex-col gap-2 w-32">
+          <div className="flex flex-col bg-slate-200/80 p-0.5 rounded-xl border border-slate-300 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveHand('hours')}
+              className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
+                activeHand === 'hours'
+                  ? 'bg-sky-950 text-white shadow-sm border-l-2 border-amber-400'
+                  : 'text-slate-600 hover:text-sky-950'
+              }`}
+            >
+              調整時針
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveHand('minutes')}
+              className={`py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
+                activeHand === 'minutes'
+                  ? 'bg-sky-950 text-white shadow-sm border-l-2 border-amber-400'
+                  : 'text-slate-600 hover:text-sky-950'
+              }`}
+            >
+              調整分針
+            </button>
+          </div>
+
+          <div className="flex bg-slate-200/80 p-0.5 rounded-xl border border-slate-300">
+            <button
+              type="button"
+              onClick={() => {
+                setPeriod('AM');
+                emitChange(hours12, minutes, 'AM');
+              }}
+              className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
+                period === 'AM' ? 'bg-sky-950 text-white shadow-sm' : 'text-slate-600 hover:text-sky-950'
+              }`}
+            >
+              AM
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPeriod('PM');
+                emitChange(hours12, minutes, 'PM');
+              }}
+              className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer text-center ${
+                period === 'PM' ? 'bg-sky-950 text-white shadow-sm' : 'text-slate-600 hover:text-sky-950'
+              }`}
+            >
+              PM
+            </button>
+          </div>
         </div>
 
-        <div className="inline-flex bg-slate-200/80 p-0.5 rounded-xl border border-slate-300">
-          <button
-            type="button"
-            onClick={() => {
-              setPeriod('AM');
-              emitChange(hours12, minutes, 'AM');
-            }}
-            className={`px-2 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-              period === 'AM'
-                ? 'bg-sky-950 text-white shadow-sm'
-                : 'text-slate-600 hover:text-sky-950'
-            }`}
-          >
-            AM
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setPeriod('PM');
-              emitChange(hours12, minutes, 'PM');
-            }}
-            className={`px-2 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-              period === 'PM'
-                ? 'bg-sky-950 text-white shadow-sm'
-                : 'text-slate-600 hover:text-sky-950'
-            }`}
-          >
-            PM
-          </button>
-        </div>
-      </div>
-
-      {/* Analog Clock Face with Dual Hands */}
-      <div
-        ref={clockRef}
-        onMouseDown={handlePointerDown}
-        onTouchStart={handlePointerDown}
-        className="relative w-44 h-44 rounded-full bg-white border-2 border-slate-300 shadow-inner flex items-center justify-center cursor-pointer select-none touch-none"
-      >
-        {/* Center Pivot Dot */}
-        <div className="w-3 h-3 rounded-full bg-sky-950 z-30 shadow"></div>
-
-        {/* 1. Hour Hand (Shorter, Deep Navy) */}
+        {/* Right-Hand Side Clock Face */}
         <div
-          style={{
-            transform: `rotate(${hourAngle}deg)`,
-            transformOrigin: 'bottom center',
-            bottom: '50%',
-            left: 'calc(50% - 2px)',
-          }}
-          className={`absolute w-[4px] h-[40px] rounded-t-full transition-transform duration-75 z-20 ${
-            activeHand === 'hours' ? 'bg-sky-900 ring-2 ring-sky-300' : 'bg-sky-950'
-          }`}
+          ref={clockRef}
+          onMouseDown={handlePointerDown}
+          onTouchStart={handlePointerDown}
+          className="relative w-36 h-36 rounded-full bg-white border-2 border-slate-300 shadow-inner flex items-center justify-center cursor-pointer select-none touch-none shrink-0"
         >
-          <div className="w-3.5 h-3.5 rounded-full bg-sky-950 border-2 border-white absolute -top-1.5 -left-[4.5px] shadow"></div>
-        </div>
+          {/* Center Pivot Dot */}
+          <div className="w-2.5 h-2.5 rounded-full bg-sky-950 z-30 shadow"></div>
 
-        {/* 2. Minute Hand (Longer, Luminous Amber Gold) */}
-        <div
-          style={{
-            transform: `rotate(${minuteAngle}deg)`,
-            transformOrigin: 'bottom center',
-            bottom: '50%',
-            left: 'calc(50% - 1.5px)',
-          }}
-          className={`absolute w-[3px] h-[58px] rounded-t-full transition-transform duration-75 z-20 ${
-            activeHand === 'minutes' ? 'bg-amber-600 ring-2 ring-amber-300' : 'bg-sky-950'
-          }`}
-        >
-          <div className="w-5 h-5 rounded-full bg-amber-500 border-2 border-sky-950 absolute -top-2.5 -left-[8.5px] shadow"></div>
-        </div>
+          {/* Hour Hand */}
+          <div
+            style={{
+              transform: `rotate(${hourAngle}deg)`,
+              transformOrigin: 'bottom center',
+              bottom: '50%',
+              left: 'calc(50% - 2px)',
+            }}
+            className={`absolute w-[3.5px] h-[30px] rounded-t-full transition-transform duration-75 z-20 ${
+              activeHand === 'hours' ? 'bg-sky-900 ring-2 ring-sky-300' : 'bg-sky-950'
+            }`}
+          >
+            <div className="w-3 h-3 rounded-full bg-sky-950 border-2 border-white absolute -top-1.5 -left-[4.5px] shadow"></div>
+          </div>
 
-        {/* Dial Numbers (Both Hour & Minute Rings) */}
-        {renderAllDialNumbers()}
+          {/* Minute Hand */}
+          <div
+            style={{
+              transform: `rotate(${minuteAngle}deg)`,
+              transformOrigin: 'bottom center',
+              bottom: '50%',
+              left: 'calc(50% - 1.5px)',
+            }}
+            className={`absolute w-[3px] h-[46px] rounded-t-full transition-transform duration-75 z-20 ${
+              activeHand === 'minutes' ? 'bg-amber-600 ring-2 ring-amber-300' : 'bg-sky-950'
+            }`}
+          >
+            <div className="w-4 h-4 rounded-full bg-amber-500 border-2 border-sky-950 absolute -top-2 -left-[7px] shadow"></div>
+          </div>
+
+          {renderAllDialNumbers()}
+        </div>
       </div>
-
-      <span className="text-[10px] text-slate-400 mt-2.5 font-medium">
-        同時顯示時針與分針・可直接拖曳錶面調整時間
-      </span>
     </div>
   );
 }

@@ -43,6 +43,7 @@ export default function RosterPage() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedSession, setSelectedSession] = useState<string>('全部堂別');
   const [students, setStudents] = useState<Student[]>([]);
+  const [msg002Template, setMsg002Template] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
 
   // Sorting state
@@ -56,29 +57,39 @@ export default function RosterPage() {
   const [remarkFeedback, setRemarkFeedback] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchAvailableClasses = async () => {
+    const fetchInitialData = async () => {
       try {
-        const { data, error } = await supabase
+        const { data: classData, error: classErr } = await supabase
           .from('classes')
           .select('*')
           .neq('status', 'suspended')
           .order('lesson_date', { ascending: true });
 
-        if (error) throw error;
-
-        const classList = data || [];
+        if (classErr) throw classErr;
+        const classList = classData || [];
         setAllClasses(classList);
 
         const distinctDates = Array.from(new Set(classList.map((c) => c.lesson_date))).filter(Boolean);
         if (distinctDates.length > 0) {
           setSelectedDate(distinctDates[0]);
         }
+
+        // Fetch MSG-002 template for roster phone links
+        const { data: tmpl } = await supabase
+          .from('message_templates')
+          .select('content')
+          .eq('message_key', 'MSG-002')
+          .single();
+
+        if (tmpl) {
+          setMsg002Template(tmpl.content);
+        }
       } catch (err: any) {
-        console.error('讀取課程資料失敗:', err.message || err);
+        console.error('初始化資料失敗:', err.message || err);
       }
     };
 
-    fetchAvailableClasses();
+    fetchInitialData();
   }, []);
 
   const availableDates = useMemo(() => {
@@ -253,11 +264,30 @@ export default function RosterPage() {
     }
   };
 
-  const getWhatsAppLink = (phone: string, studentName: string) => {
-    const cleaned = phone.replace(/[^0-9]/g, '');
+  // Generate WhatsApp Web link referencing MSG-002 template variables
+  const getWhatsAppWebLinkForStudent = (student: Student) => {
+    const cleaned = student.phone.replace(/[^0-9]/g, '');
     const fullNumber = cleaned.startsWith('852') ? cleaned : `852${cleaned}`;
-    const text = encodeURIComponent(`您好，這是關於 ${studentName} 的課堂點名與上課通知。`);
-    return `https://wa.me/${fullNumber}?text=${text}`;
+
+    const enrolledClass = allClasses.find((c) => c.class_code === student.class_code);
+    const classCategory = enrolledClass ? `${enrolledClass.class_name} [${enrolledClass.class_code}]` : '未分班課程';
+    const classDate = enrolledClass ? `${enrolledClass.lesson_date} (${enrolledClass.duration})` : '待定';
+
+    const fallbackTemplate = `家長您好~~~
+關於 {STUDENTNAME} 於 {CLASSCATEGORY} ({CLASSDATE}) 之上課與點名狀況特此通知。
+
+謝謝！`;
+
+    const activeTemplate = msg002Template || fallbackTemplate;
+
+    const message = activeTemplate
+      .replace(/{STUDENTNAME}/g, student.chinese_name)
+      .replace(/{CLASSCATEGORY}/g, classCategory)
+      .replace(/{CLASSDATE}/g, classDate)
+      .replace(/{SCHOOL}/g, student.school || '未填寫學校')
+      .replace(/{PHONE}/g, student.phone);
+
+    return `https://web.whatsapp.com/send?phone=${fullNumber}&text=${encodeURIComponent(message)}`;
   };
 
   const renderSortIndicator = (field: SortField) => {
@@ -272,13 +302,7 @@ export default function RosterPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center gap-4">
             <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 bg-white rounded-full shadow-md border-2 border-amber-400 p-1">
-              <Image
-                src="/logo.png"
-                alt="Luminous Minds Miss Ann Logo"
-                fill
-                className="object-contain rounded-full"
-                priority
-              />
+              <Image src="/logo.png" alt="Logo" fill className="object-contain rounded-full" priority />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -389,7 +413,7 @@ export default function RosterPage() {
           )}
         </div>
 
-        {/* 點名表格 */}
+        {/* 點名表格 (聯絡電話參考 MSG-002 範本) */}
         <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-sky-950 text-white select-none">
@@ -444,7 +468,7 @@ export default function RosterPage() {
                   className="px-4 py-3.5 text-left text-xs font-semibold cursor-pointer hover:bg-sky-900 transition"
                 >
                   <div className="flex items-center">
-                    <span>聯絡電話</span>
+                    <span>聯絡電話 (點擊發送 MSG-002)</span>
                     {renderSortIndicator('phone')}
                   </div>
                 </th>
@@ -520,10 +544,11 @@ export default function RosterPage() {
                     </td>
                     <td className="px-4 py-3 font-mono">
                       <a
-                        href={getWhatsAppLink(st.phone, st.chinese_name)}
+                        href={getWhatsAppWebLinkForStudent(st)}
                         target="_blank"
                         rel="noreferrer"
                         className="text-blue-600 hover:text-blue-800 font-semibold underline decoration-blue-300"
+                        title="點擊透過 WhatsApp Web 發送 MSG-002 範本訊息"
                       >
                         {st.phone}
                       </a>
